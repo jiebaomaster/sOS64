@@ -17,7 +17,7 @@ SectorBalance             equ   17  ;
   BPB_BytesPerSec dw  512             ; 每扇区字节数
   BPB_SecPerClus  db  1               ; 每簇扇区数
   BPB_RsvdSecCnt  dw  1               ; 保留扇区数
-  BPB_NumFATs    db  2               ; FAT 表的份数
+  BPB_NumFATs     db  2               ; FAT 表的份数
   BPB_RootEntCnt  dw  224             ; 根目录可容纳的目录项数
   BPB_TotSec16    dw  2880            ; 总扇区数
   BPB_Media       db  0xf0            ; 介质描述符
@@ -61,7 +61,7 @@ Label_Start:
 
   mov   ax,   1301h   ; 功能号 ah=13h 显示一行字符串
                       ; al=01h 字符串属性由 bl 提供，字符串长度由 cx 提供，光标移动至字符串尾端
-  mov   bx,   000fh   ; bh=00h 页码，bl=0fh 白底黑字
+  mov   bx,   000fh   ; bh=00h 页码，bl=0fh 黑底白字
   mov   dx,   0000h   ; dh=00h 游标坐标行号，dl=00h 游标坐标列号
   mov   cx,   10      ; cx=10 显示的字符串长度为 10
   push  ax
@@ -154,10 +154,10 @@ Label_FileName_Found:
   push  cx
   add   cx,   ax
   add   cx,   SectorBalance
-  mov   ax,   BaseOfLoader
-  mov   es,   ax
-  mov   bx,   OffsetOfLoader
-  mov   ax,   cx
+  mov   ax,   BaseOfLoader    ; 设置 Func_ReadOneSector 参数
+  mov   es,   ax              ;
+  mov   bx,   OffsetOfLoader  ; ES:BX 目标缓冲区的起始地址
+  mov   ax,   cx              ; 起始扇区号
 
 Label_Go_On_Loading_File:
   push  ax
@@ -169,7 +169,7 @@ Label_Go_On_Loading_File:
   pop   bx
   pop   ax
 
-  mov   cl,   1
+  mov   cl,   1     ; 设置 Func_ReadOneSector 参数，读取一个簇
   call  Func_ReadOneSector
   pop   ax
   call  Func_GetFATEntry
@@ -188,7 +188,7 @@ Label_File_Loaded:
 ;======= read one sector from floppy
 ; arg1 AX 起始扇区号，逻辑扇区号，需要转换成 柱面/磁头/扇区 格式供中断使用
 ; arg2 CL 读入扇区数量
-; arg3 EX:BX 目标缓冲区的起始地址
+; arg3 ES:BX 目标缓冲区的起始地址
 Func_ReadOneSector:
   push  bp
   mov   bp,   sp
@@ -246,7 +246,7 @@ Label_Even:
   
   pop   dx
   add   bx,   dx          ; FAT 表项所在地址
-  mov   ax,   [es:bx]     ; 从缓冲区读取16字节
+  mov   ax,   [es:bx]     ; 从缓冲区读取16位
   cmp   byte  [Odd],    1
   jnz   Label_Even_2      ; 表项号是偶数则跳转
   shr   ax,   4           ; 表项号是奇数，高12位才是表项的数据，右移4位，舍弃低4位

@@ -23,6 +23,7 @@ update_image:
 	mkdir _kernel
 	sudo mount -o loop -t vfat $(BOOTIMG) ./_kernel
 	cp loader.bin ./_kernel
+	cp kernel.bin ./_kernel
 	sync
 	umount _kernel
 	rmdir _kernel
