@@ -12,17 +12,31 @@ OffsetOfTmpKernelAddr   equ   0x7E00    ; 内核文件临时存储地址的偏�
 MemoryStructBufferAddr  equ   0x7E00    ; 读取的内存物理地址信息存储地址
 
 [SECTION gdt]
-; 初始化临时全局描述符表
-LABEL_GDT:            dd    0,0
-LABEL_DESC_CODE32:    dd    0x0000FFFF,0x00CF9A00
-LABEL_DESC_DATA32:    dd    0x0000FFFF,0x00CF9200
+; 初始化进入保护模式时需要的临时全局描述符表
+LABEL_GDT:            dd    0,0                     ; 第一项必须是 NULL 描述符
+LABEL_DESC_CODE32:    dd    0x0000FFFF,0x00CF9A00   ; 代码段描述符
+LABEL_DESC_DATA32:    dd    0x0000FFFF,0x00CF9200   ; 数据段描述符
+                                                    ; base:limit=0x00000000:0xffffffff，即索引 0~4GB
 
-GdtLen    equ   $ - LABEL_GDT
-GdtPtr    dw    GdtLen - 1
-  dd  LABEL_GDT
+GdtLen    equ   $ - LABEL_GDT   ; gdt 长度
+GdtPtr    dw    GdtLen - 1      ; gdtr 的低 2 字节，保存 gdt 长度 - 1
+          dd    LABEL_GDT       ; gdtr 的高 4 自己，保存 gdt 基地址
 
 SelectorCode32    equ   LABEL_DESC_CODE32 - LABEL_GDT   ; 32位代码段描述符在gdt中的偏移
 SelectorData32    equ   LABEL_DESC_DATA32 - LABEL_GDT   ; 32位数据段描述符在gdt中的偏移
+
+[SECTION gdt64]
+; 初始化进入长模式时需要的临时全局描述符表
+LABEL_GDT64:            dq    0x0000000000000000      ; 第一项必须是 NULL 描述符
+LABEL_DESC_CODE64:      dq    0x0020980000000000      ; 代码段描述符
+LABEL_DESC_DATA64:      dq    0x0000920000000000      ; 数据段描述符
+
+GdtLen64    equ   $ - LABEL_GDT64   ; gdt 长度
+GdtPtr64    dw    GdtLen64 - 1      ; gdtr 的低 2 字节，保存 gdt 长度 - 1
+            dd    LABEL_GDT64       ; gdtr 的高 4 自己，保存 gdt 基地址
+
+SelectorCode64    equ   LABEL_DESC_CODE64 - LABEL_GDT64   ; 32位代码段描述符在gdt中的偏移
+SelectorData64    equ   LABEL_DESC_DATA64 - LABEL_GDT64   ; 32位数据段描述符在gdt中的偏移
 
 [SECTION .s16]  ; 定义一个节
 [BITS 16]       ; 通知nasm编译器，以下代码运行在16位宽的处理器下
@@ -294,7 +308,7 @@ Label_Get_Mem_OK:
                       ; al=01h 字符串属性由 bl 提供，字符串长度由 cx 提供，光标移动至字符串尾端
   mov   bx,   000Fh   ; bh=00h 页码，bl=0fh 黑底白字
   mov   dx,   0600h   ; dh=06h 游标坐标行号6，dl=00h 游标坐标列号
-  mov   cx,   29      ; cx=23 显示的字符串长度为 23
+  mov   cx,   29      ; cx=29 显示的字符串长度为 29
   push  ax
   mov   ax,   ds
   mov   es,   ax      ; 设置扩展段指针
@@ -303,7 +317,261 @@ Label_Get_Mem_OK:
   mov   bp,   GetMemStructOKMessage  ; 用 bp 保存待输出字符串的内存地址
   int   10h           ; 输出读取内存信息的成功提示消息
   
-  jmp   $     ; TODO
+;=======	get SVGA information
+
+  mov   ax,   1301h   ; 功能号 ah=13h 显示一行字符串
+  mov   bx,   000Fh   ; bh=00h 页码，bl=0fh 黑底白字
+  mov   dx,   0800h   ; dh=08h 游标坐标行号8，dl=00h 游标坐标列号
+  mov   cx,   23      ; cx=23 显示的字符串长度为 23
+  push  ax
+  mov   ax,   ds
+  mov   es,   ax      ; es:bp 要显示字符串的内存地址
+  pop   ax
+  mov   bp,   StartGetSVGAVBEInfoMessage  ; 用 bp 保存待输出字符串的内存地址
+  int   10h           ; 输出开始读取 SVGA 提示消息
+
+  mov   ax,   0x00
+  mov   es,   ax
+  mov   di,   0x8000  ; es:di=0x00:0x8000，读取到的信息保存的地址
+  mov   ax,   4F00h   ; 功能号 ah=4Fh
+  int   10h           ; 读取 SVGA 信息
+
+  cmp   ax,   004Fh
+  jz    .KO           ; ax=004Fh 则读取成功，跳转到成分支，否则继续执行输出错误信息
+  
+;=======	Fail
+
+  mov   ax,   1301h   ; 功能号 ah=13h 显示一行字符串
+  mov   bx,   008Ch   ; bh=00h 页码，bl=8ch 字符闪烁、黑色背景、高亮、红色字体
+  mov   dx,   0900h   ; dh=09h 游标坐标行号9，dl=00h 游标坐标列号
+  mov   cx,   23      ; cx=23 显示的字符串长度为 23
+  push  ax
+  mov   ax,   ds
+  mov   es,   ax      ; es:bp 要显示字符串的内存地址
+  pop   ax
+  mov   bp,   GetSVGAVBEInfoErrMessage  ; 用 bp 保存待输出字符串的内存地址
+  int   10h           ; 输出读取 SVGA 失败的提示消息
+  jmp   $             ; 失败后原地等待
+
+.KO:
+  mov   ax,   1301h   ; 功能号 ah=13h 显示一行字符串
+  mov   bx,   000Fh   ; bh=00h 页码，bl=0fh 黑底白字
+  mov   dx,   0A00h   ; dh=0Ah 游标坐标行号9，dl=00h 游标坐标列号
+  mov   cx,   29      ; cx=29 显示的字符串长度为 29
+  push  ax
+  mov   ax,   ds
+  mov   es,   ax      ; es:bp 要显示字符串的内存地址
+  pop   ax
+  mov   bp,   GetSVGAVBEInfoOKMessage  ; 用 bp 保存待输出字符串的内存地址
+  int   10h           ; 输出读取 SVGA 成功的提示消息
+
+;=======	Get SVGA Mode Info
+
+  mov   ax,   1301h   ; 功能号 ah=13h 显示一行字符串
+  mov   bx,   000Fh   ; bh=00h 页码，bl=0fh 黑底白字
+  mov   dx,   0C00h   ; dh=0Ch 游标坐标行号12，dl=00h 游标坐标列号
+  mov   cx,   24      ; cx=24 显示的字符串长度为 24
+  push  ax
+  mov   ax,   ds
+  mov   es,   ax      ; es:bp 要显示字符串的内存地址
+  pop   ax
+  mov   bp,   StartGetSVGAModeInfoMessage  ; 用 bp 保存待输出字符串的内存地址
+  int   10h           ; 输出开始读取 SVGA 显示模式的提示消息
+
+  mov   ax,   0x00
+  mov   es,   ax
+  mov   si,   0x800e
+
+  mov   esi,  dword [es:si]
+  mov   edi,  0x8200
+
+Label_SVGA_Mode_Info_Get:
+  mov   cx,   word  [es:esi]
+
+;=======	display SVGA mode information
+
+  push  ax
+  
+  mov   ax,   00h
+  mov   al,   ch
+  call  Label_DispAL
+
+  mov   ax,   00h
+  mov   al,   cl	
+  call  Label_DispAL
+  
+  pop   ax
+
+;=======
+  
+  cmp   cx,   0FFFFh
+  jz    Label_SVGA_Mode_Info_Finish
+
+  mov   ax,   4F01h
+  int   10h
+
+  cmp   ax,   004Fh
+  jnz   Label_SVGA_Mode_Info_FAIL	
+  add   esi,  2
+  add   edi,  0x100
+
+  jmp   Label_SVGA_Mode_Info_Get
+    
+Label_SVGA_Mode_Info_FAIL:
+  mov   ax,   1301h
+  mov   bx,   008Ch
+  mov   dx,   0D00h		;row 13
+  mov   cx,   24
+  push  ax
+  mov   ax,   ds
+  mov   es,   ax
+  pop   ax
+  mov   bp,   GetSVGAModeInfoErrMessage
+  int   10h
+
+Label_SET_SVGA_Mode_VESA_VBE_FAIL:
+  jmp   $
+
+Label_SVGA_Mode_Info_Finish:
+  mov   ax,   1301h
+  mov   bx,   000Fh
+  mov   dx,   0E00h		;row 14
+  mov   cx,   30
+  push  ax
+  mov   ax,   ds
+  mov   es,   ax
+  pop   ax
+  mov   bp,   GetSVGAModeInfoOKMessage
+  int   10h
+
+;======= set the SVGA mode(VESA VBE)
+; TODO 这里改变屏幕的分辨率后会使前面的输出不可见，后面用到再取消注释
+  ; mov   ax,   4F02h
+  ; mov   bx,   4180h    ; 显示模式 4180h，1440 列 900 行，物理地址 e0000000h，每像素 32bit
+  ; int   10h
+
+  ; cmp   ax,   004Fh
+  ; jnc   Label_SET_SVGA_Mode_VESA_VBE_FAIL ; 若 ax!=004fh 表示设置显示模式失败，跳转到失败分支
+
+;======= init IDT,GDT and goto protect mode
+  
+  cli                   ; 关外部中断
+  db    0x66
+  lgdt  [GdtPtr]        ; 重新加载 gdt 指针
+  db    0x66
+  lidt  [IDT_POINTER]   ; （可选）重新加载 idt 指针
+  mov   eax,  cr0
+  or    eax,  1
+  mov   cr0,  eax       ; 设置 cr0 的第 1 位，打开保护模式
+  jmp   dword SelectorCode32:GO_TO_TMP_Protect  ; 通过一个远跳转指令将保护模式的代码端选择子SelectorCode32
+                                                ; 加载到 cs，便可运行保护模式的代码段
+  
+[SECTION .s32]
+[BITS 32]
+
+GO_TO_TMP_Protect:
+
+;======= goto tmp long mode
+
+  mov   ax,   0x10        ; 初始化各个段寄存器
+  mov   ds,   ax
+  mov   es,   ax
+  mov   fs,   ax
+  mov   ss,   ax
+  mov   esp,  7E00h
+
+  call  support_long_mode ; 判断是否支持长模式
+  test  eax,  eax         ; eax & eax = 0 即 eax = 0 时，设置 eflags.zf=1
+  jz    no_support        ; eflags.zf=1 表示系统不支持长模式，跳转到失败分支
+
+;======= init temporary page table 0x90000
+  ; 长模式下的临时页表，支持 256TB（2^48B）的线性地址空间
+  ; 这里 PDT[7]=1，故采用的是 2MB 大小的物理页，所以总共有三级页表
+  ; 每一级表项的大小为 8B，因为 Intel CPU 采用小端序，所以要先存放表项的低 4B，再存放高 4B
+  ; 将虚拟地址 0x0000000000000000和 0x0000040000000000（128TB）
+  ; 开始的 6*2MB=12MB 的地址空间映射到物理地址 0x0000000000000000 开始的 12MB
+  ; PML4T 39-47
+  mov   dword [0x90000],    0x91007 ; 第 0 项
+  mov   dword [0x90004],    0x00000
+  mov   dword [0x90800],    0x91007 ; 第 256 项
+  mov   dword [0x90804],    0x00000
+  ; PDPT 30-38
+  mov   dword [0x91000],    0x92007
+  mov   dword [0x91004],    0x00000
+  ; PDT 21-29
+  mov   dword [0x92000],    0x000083
+  mov   dword [0x92004],    0x000000
+  mov   dword [0x92008],    0x200083
+  mov   dword [0x9200c],    0x000000
+  mov   dword [0x92010],    0x400083
+  mov   dword [0x92014],    0x000000
+  mov   dword [0x92018],    0x600083
+  mov   dword [0x9201c],    0x000000
+  mov   dword [0x92020],    0x800083
+  mov   dword [0x92024],    0x000000
+  mov   dword [0x92028],    0xa00083
+  mov   dword [0x9202c],    0x000000
+
+;======= load GDTR
+
+  db    0x66
+  lgdt  [GdtPtr64]
+  mov   ax,   0x10
+  mov   ds,   ax
+  mov   es,   ax
+  mov   fs,   ax
+  mov   gs,   ax
+  mov   ss,   ax
+  mov   esp,  7E00h
+
+;======= open PAE
+
+  mov   eax,  cr4
+  bts   eax,  5     ; cr4.pae=1，开启物理地址扩展功能，进入长模式时必须
+  mov   cr4,  eax
+  
+;======= load cr3
+
+  mov   eax,  0x90000
+  mov   cr3,  eax   ; 设置长模式的页表地址
+
+;======= enable long-mode
+
+  mov   ecx,  0C0000080h  ; 读 msr 寄存器组的寄存器地址，0C0000080h 表示 IA32_EFER 寄存器
+  rdmsr             ; 读 msr 寄存器组到 eax
+  bts   eax,  8     ; IA32_EFER.LME=1，激活 IA-32e 模式
+  wrmsr             ; 写 msr
+
+;======= open PE and paging
+
+  mov   eax,  cr0
+  bts   eax,  0     ; cr0.PE=1，保险起见，再次开启保护模式
+  bts   eax,  31    ; cr0.PG=1，开启分页
+  mov   cr0,  eax
+
+  jmp SelectorCode64:OffsetOfKernelFile ; 长跳转到内核代码，正式进入64位IA-32e模式
+
+;======= test support long mode or not
+; 判断是否支持 IA-32e 模式
+; 返回值在 eax 中，eax=0 则不支持，否则支持 
+support_long_mode:
+  mov   eax,  0x80000000  ; cpuid 指令的输入参数，0x80000000h 表示查询处理器支持的最大扩展功能号
+  cpuid                   ; 监测处理器支持的功能，eax=0x80000000h 时返回值存储在 eax
+  cmp   eax,  0x80000001  
+  setnb al                ; eax < 0x80000001 时 cf=1，设置 al=0
+  jb    support_long_mode_done  ; 若 cpuid 返回小于 0x80000001h，则肯定不支持长模式，跳转到返回
+  mov   eax,  0x80000001  ; cpuid 指令的输入参数，eax=0x80000001h 时返回值保存在 edx，
+                          ; 且其第 29 位表示了 cpu 是否支持长模式
+  cpuid
+  bt    edx,  29          ; 将 edx 的第 29 位传到 eflags.CF
+  setc  al                ; 若 eflags.CF=1，设置 al=1
+
+support_long_mode_done:
+  movzx eax,  al          ; 8 位的 al 前面补 0 再传给 eax，eax 作为返回值
+  ret
+
+no_support:
+  jmp   $      
 
 [SECTION .s16lib]
 [BITS 16]
@@ -419,6 +687,16 @@ Label_DispAL:
   pop   ecx
   ret
 
+;======= tmp IDT
+
+IDT:
+  times 0x50  dq  0 ; 50 个 64 位的中断描述符
+IDT_END:
+
+IDT_POINTER:
+  dw  IDT_END - IDT - 1 ; idtr 低 2 字节，idt 长度 - 1
+  dd  IDT               ; idtr 高 4 字节，idt 地址
+
 ;======= tmp variable
 
 RootDirSizeForLoop  dw    RootDirSectors
@@ -432,6 +710,15 @@ DisplayPosition     dd    0
 StartLoaderMessage:   db    "Start Loader"    
 NoLoaderMessage:      db    "ERROR:No KERNEL Found"
 LoaderFileName:       db    "KERNEL  BIN",0
+
 StartGetMemStructMessage:   db    "Start Get Memory Struct."
 GetMemStructErrMessage:     db    "Get Memory Struct ERROR"
 GetMemStructOKMessage:      db    "Get Memory Struct SUCCESSFUL!"
+
+StartGetSVGAVBEInfoMessage: db    "Start Get SVGA VBE Info"
+GetSVGAVBEInfoErrMessage:   db    "Get SVGA VBE Info ERROR"
+GetSVGAVBEInfoOKMessage:    db    "Get SVGA VBE Info SUCCESSFUL!"
+
+StartGetSVGAModeInfoMessage:db    "Start Get SVGA Mode Info"
+GetSVGAModeInfoErrMessage:  db    "Get SVGA Mode Info ERROR"
+GetSVGAModeInfoOKMessage:   db    "Get SVGA Mode Info SUCCESSFUL!"
