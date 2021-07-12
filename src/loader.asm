@@ -35,8 +35,8 @@ GdtLen64    equ   $ - LABEL_GDT64   ; gdt 长度
 GdtPtr64    dw    GdtLen64 - 1      ; gdtr 的低 2 字节，保存 gdt 长度 - 1
             dd    LABEL_GDT64       ; gdtr 的高 4 自己，保存 gdt 基地址
 
-SelectorCode64    equ   LABEL_DESC_CODE64 - LABEL_GDT64   ; 32位代码段描述符在gdt中的偏移
-SelectorData64    equ   LABEL_DESC_DATA64 - LABEL_GDT64   ; 32位数据段描述符在gdt中的偏移
+SelectorCode64    equ   LABEL_DESC_CODE64 - LABEL_GDT64   ; 64位代码段描述符在gdt中的偏移
+SelectorData64    equ   LABEL_DESC_DATA64 - LABEL_GDT64   ; 64位数据段描述符在gdt中的偏移
 
 [SECTION .s16]  ; 定义一个节
 [BITS 16]       ; 通知nasm编译器，以下代码运行在16位宽的处理器下
@@ -100,7 +100,7 @@ Label_Start:
 
 Lable_Search_In_Root_Dir_Begin:           ; 搜索所有根目录占用的所有扇区
   cmp   word  [RootDirSizeForLoop],   0   ; RootDirSizeForLoop=0 表示根目录中的所有扇区都搜索完成
-  jz    Label_No_LoaderBin                ; 若在根目录的所有扇区中都没找到 loader，输出错误信息
+  jz    Label_No_KernelBin                ; 若在根目录的所有扇区中都没找到 kernel.bin，输出错误信息
   dec   word  [RootDirSizeForLoop]        ; RootDirSizeForLoop--
   mov   ax,   00h
   mov   es,   ax                ;
@@ -108,7 +108,7 @@ Lable_Search_In_Root_Dir_Begin:           ; 搜索所有根目录占用的所有
   mov   ax,   [SectorNo]        ; 待读取的扇区号
   mov   cl,   1                 ; 读取的扇区数量
   call  Func_ReadOneSector      ; 读取第 SectorNo 个扇区到内存中
-  mov   si,   LoaderFileName
+  mov   si,   KernelFileName
   mov   di,   8000h             ; 存放目标扇区数据的缓冲区地址
   cld                           ; 设置 DF=0，下面字符串比较时地址递增
   mov   dx,   10h               ; dx=每个扇区可容纳的目录项个数 512 / 32 = 16 = 10h
@@ -135,7 +135,7 @@ Label_Go_On:
 Label_Different:
   and   di,   0ffe0h             ; 将 di 对齐到 0x20
   add   di,   20h                ; di+=32，下一个目录项
-  mov   si,   LoaderFileName
+  mov   si,   KernelFileName
   jmp   Label_Search_For_KernelBin
 
 Label_Goto_Next_Sector_In_Root_Dir:
@@ -144,18 +144,18 @@ Label_Goto_Next_Sector_In_Root_Dir:
 
 ;======= display on screen : ERROR:No KERNEL Found
 
-Label_No_LoaderBin:
+Label_No_KernelBin:
   mov   ax,   1301h   ; 功能号 ah=13h 显示一行字符串
                       ; al=01h 字符串属性由 bl 提供，字符串长度由 cx 提供，光标移动至字符串尾端
   mov   bx,   008ch   ; bh=00h 页码，bl=8ch 字符闪烁、黑色背景、高亮、红色字体
-  mov   dx,   0100h   ; dh=10h 游标坐标行号，dl=00h 游标坐标列号
+  mov   dx,   0300h   ; dh=03h 游标坐标行号，dl=00h 游标坐标列号
   mov   cx,   21      ; cx=21 显示的字符串长度为 21
   push  ax
   mov   ax,   ds
   mov   es,   ax      ; 设置扩展段指针
                       ; es:bp 要显示字符串的内存地址
   pop   ax
-  mov   bp,   NoLoaderMessage ; 用 bp 保存字符串的内存地址
+  mov   bp,   NoKernelMessage ; 用 bp 保存字符串的内存地址
   int   10h
 
   jmp   $             ; 未找到 kernel 程序，原地死循环
@@ -170,8 +170,8 @@ Label_FileName_Found:
   push  cx
   add   cx,   ax
   add   cx,   SectorBalance
-  mov   ax,   BaseOfTmpKernelAddr   ; 设置 Func_ReadOneSector 参数
-  mov   es,   ax                    ;
+  mov   eax,  BaseOfTmpKernelAddr   ; 设置 Func_ReadOneSector 参数
+  mov   es,   eax
   mov   bx,   OffsetOfTmpKernelAddr ; ES:BX 目标缓冲区的起始地址
   mov   ax,   cx                    ; 起始扇区号
 
@@ -234,7 +234,7 @@ Label_Mov_Kernel:	;------------------
   mov   dx,   RootDirSectors
   add   ax,   dx
   add   ax,   SectorBalance
-  add   bx,   [BPB_BytesPerSec]   ; 地址+512
+  ; add   bx,   [BPB_BytesPerSec]   ; 地址+512
   jmp   Label_Go_On_Loading_File  ; 继续加载下一个簇
 
 ;======= 读取成功，通过写内存的方式在屏幕上输出一个字符 
@@ -282,12 +282,16 @@ Label_Get_Mem_Struct:
   int   15h
   jc    Label_Get_Mem_Fail    ; 读取成功时 CF=0，继续向下执行，否则跳转到错误分支
   add   di,   20              ; 读取下一个 struct
+  inc   dword [MemStructNumber]
 
   cmp   ebx,  0
   jne   Label_Get_Mem_Struct  ; ebx!=0，表示还未遍历完，继续遍历，否则继续向下执行
   jmp   Label_Get_Mem_OK      ; 已遍历完，跳转到成功分支
 
 Label_Get_Mem_Fail:
+
+  mov dword [MemStructNumber],  0
+  
   mov   ax,   1301h   ; 功能号 ah=13h 显示一行字符串
                       ; al=01h 字符串属性由 bl 提供，字符串长度由 cx 提供，光标移动至字符串尾端
   mov   bx,   008Ch   ; bh=00h 页码，bl=8ch 字符闪烁、黑色背景、高亮、红色字体
@@ -412,6 +416,8 @@ Label_SVGA_Mode_Info_Get:
 
   cmp   ax,   004Fh
   jnz   Label_SVGA_Mode_Info_FAIL	
+
+  inc   dword [SVGAModeCounter]
   add   esi,  2
   add   edi,  0x100
 
@@ -451,15 +457,15 @@ Label_SVGA_Mode_Info_Finish:
   ; int   10h
 
   ; cmp   ax,   004Fh
-  ; jnc   Label_SET_SVGA_Mode_VESA_VBE_FAIL ; 若 ax!=004fh 表示设置显示模式失败，跳转到失败分支
+  ; jnz   Label_SET_SVGA_Mode_VESA_VBE_FAIL ; 若 ax!=004fh 表示设置显示模式失败，跳转到失败分支
 
 ;======= init IDT,GDT and goto protect mode
   
   cli                   ; 关外部中断
   db    0x66
   lgdt  [GdtPtr]        ; 重新加载 gdt 指针
-  db    0x66
-  lidt  [IDT_POINTER]   ; （可选）重新加载 idt 指针
+  ; db    0x66
+  ; lidt  [IDT_POINTER]   ; （可选）重新加载 idt 指针
   mov   eax,  cr0
   or    eax,  1
   mov   cr0,  eax       ; 设置 cr0 的第 1 位，打开保护模式
@@ -703,13 +709,18 @@ RootDirSizeForLoop  dw    RootDirSectors
 SectorNo            dw    0
 Odd                 db    0
 OffsetOfKernelFileCount dd  OffsetOfKernelFile
+
+MemStructNumber     dd    0
+
+SVGAModeCounter     dd    0
+
 DisplayPosition     dd    0
 
 ;=======	display messages
 
 StartLoaderMessage:   db    "Start Loader"    
-NoLoaderMessage:      db    "ERROR:No KERNEL Found"
-LoaderFileName:       db    "KERNEL  BIN",0
+NoKernelMessage:      db    "ERROR:No KERNEL Found"
+KernelFileName:       db    "KERNEL  BIN",0
 
 StartGetMemStructMessage:   db    "Start Get Memory Struct."
 GetMemStructErrMessage:     db    "Get Memory Struct ERROR"
