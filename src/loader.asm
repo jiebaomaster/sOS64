@@ -451,13 +451,12 @@ Label_SVGA_Mode_Info_Finish:
   int   10h
 
 ;======= set the SVGA mode(VESA VBE)
-; TODO 这里改变屏幕的分辨率后会使前面的输出不可见，后面用到再取消注释
-  ; mov   ax,   4F02h
-  ; mov   bx,   4180h    ; 显示模式 4180h，1440 列 900 行，物理地址 e0000000h，每像素 32bit
-  ; int   10h
+  mov   ax,   4F02h
+  mov   bx,   4180h    ; 显示模式 4180h，1440 列 900 行，物理地址 e0000000h，每像素 32bit
+  int   10h
 
-  ; cmp   ax,   004Fh
-  ; jnz   Label_SET_SVGA_Mode_VESA_VBE_FAIL ; 若 ax!=004fh 表示设置显示模式失败，跳转到失败分支
+  cmp   ax,   004Fh
+  jnz   Label_SET_SVGA_Mode_VESA_VBE_FAIL ; 若 ax!=004fh 表示设置显示模式失败，跳转到失败分支
 
 ;======= init IDT,GDT and goto protect mode
   
