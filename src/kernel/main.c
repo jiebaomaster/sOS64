@@ -54,6 +54,7 @@ void Start_Kernel(void) {
   color_printk(YELLOW, BLACK, "Hello\t\t World!\n");
   printk("test int %-3d, str %s, 16# %#x, %%\n",10, "abcd", 16);
 
+  i = 1 / 0; // 触发异常
   while (1)
     ;
 }
