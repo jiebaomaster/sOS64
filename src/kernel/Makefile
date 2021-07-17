@@ -1,25 +1,32 @@
-C_FLAGS = -mcmodel=large -fno-builtin -fno-stack-protector -m64 -c
+C_SOURCES = $(shell find . -name "*.c")
+C_OBJECTS = $(patsubst %.c, %.o, $(C_SOURCES))
+S_SOURCES = $(shell find . -name "*.S")
+S_OBJECTS = $(patsubst %.S, %.o, $(S_SOURCES))
+
+ROOT_INCLUDE_PATH =  $(shell pwd)/include
+
+CC = gcc
+C_FLAGS = -mcmodel=large -fno-builtin -fno-stack-protector -m64 -c -I $(ROOT_INCLUDE_PATH)
+ASM = as
+ASM_FLAGS = --64
 LD_FLAGS = -b elf64-x86-64 -z muldefs -T Kernel.lds
 
 all: system
 	@echo 生成内核可执行代码 $< ...
 	objcopy -I elf64-x86-64 -S -R ".eh_frame" -R ".comment" -O binary system kernel.bin
 
-system: head.o main.o printk.o
-	ld $(LD_FLAGS) -o system head.o main.o printk.o
+system: $(C_OBJECTS) $(S_OBJECTS)
+	ld $(LD_FLAGS) -o system init/head.o $(C_OBJECTS) $(filter-out %head.o, $(S_OBJECTS))
 
-head.o:	head.S
+.c.o:
+	@echo 编译代码文件 $< ...
+	$(CC) $(C_FLAGS) $< -o $@
+
+.S.o:
 	@echo 编译汇编文件 $< ...
-	gcc -E head.S > head.s
-	as --64 -o head.o head.s
-
-main.o:	main.c
-	@echo 编译内核代码 $< ...
-	gcc	$(C_FLAGS) main.c
-
-printk.o: printk.c
-	gcc	$(C_FLAGS) printk.c
+	$(CC) -E $< > $(patsubst %.S, %.s, $<)
+	$(ASM) $(ASM_FLAGS) -o $@ $(patsubst %.S, %.s, $<)
 
 .PHONY:clean
 clean:
-	rm -rf *.bin *.s *.o system kernel.bin
+	rm -rf */*.bin */*.s */*.o system kernel.bin
