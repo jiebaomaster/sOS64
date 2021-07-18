@@ -24,7 +24,7 @@ system: $(C_OBJECTS) $(S_OBJECTS)
 
 .S.o:
 	@echo 编译汇编文件 $< ...
-	$(CC) -E $< > $(patsubst %.S, %.s, $<)
+	$(CC) -I $(ROOT_INCLUDE_PATH) -E $< > $(patsubst %.S, %.s, $<)
 	$(ASM) $(ASM_FLAGS) -o $@ $(patsubst %.S, %.s, $<)
 
 .PHONY:clean

@@ -89,8 +89,8 @@ setup_TSS64: // 初始化 TSS，发生特权级的切换时，需要从 TSS 内�
   shrq  $32,  %rdx
   movq  %rdx, 72(%rdi)
 
-  mov   $0x40,%ax // 0x40 为 TSS 描述符在 GDT 中的偏移量
-  ltr   %ax       // 加载 TSS 描述符选择子到 tr 寄存器中
+//  mov   $0x40,%ax // 0x40 为 TSS 描述符在 GDT 中的偏移量
+//  ltr   %ax       // 加载 TSS 描述符选择子到 tr 寄存器中
 
   movq  go_to_kernel(%rip), %rax
   pushq $0x08
@@ -245,7 +245,7 @@ IDT_BASE:     .quad IDT_TABLE
 
 .globl  TSS64_TABLE
 
-TSS64_TABLE:
+TSS64_TABLE: // 64 位模式下每个 TSS 占 104 字节，故该表只含有一个 TSS，详见书本 P232
   .fill   13,8,0
 TSS64_END:
 

@@ -1,5 +1,7 @@
 #include "lib.h"
 #include "printk.h"
+#include "trap.h"
+#include "gate.h"
 
 void Start_Kernel(void) {
   int *addr = (int *)0xffff800000a00000; // 图像帧缓存的起始地址
@@ -8,13 +10,13 @@ void Start_Kernel(void) {
   // 初始化屏幕信息
   Pos.XResolution = 1440;
   Pos.YResolution = 900;
-  
+
   Pos.XPosition = 0;
   Pos.YPosition = 0;
 
   Pos.XCharSize = 8;
   Pos.YCharSize = 16;
-  
+
   Pos.FB_addr = (int *)0xffff800000a00000;
   Pos.FB_length = (Pos.XResolution * Pos.YResolution * 4);
 
@@ -52,9 +54,20 @@ void Start_Kernel(void) {
   }
 
   color_printk(YELLOW, BLACK, "Hello\t\t World!\n");
-  printk("test int %-3d, str %s, 16# %#x, %%\n",10, "abcd", 16);
 
-  i = 1 / 0; // 触发异常
+  // 初始化 tss
+  load_TR(8);
+  // tss 中所有的栈指针都指向 0xffff800000007c00
+  set_tss64(0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,
+            0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,
+            0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,
+            0xffff800000007c00);
+
+  sys_vector_init();
+
+  // i = 1 / 0; // 触发除0异常
+  i = *(int *)0xffff80000aa00000; // 触发缺页异常
+  
   while (1)
     ;
 }
