@@ -1,1 +1,4 @@
+boot: floppy
 floppya: image="a.img", status=inserted
+
+megs: 2048

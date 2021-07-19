@@ -2,6 +2,9 @@
 #include "printk.h"
 #include "trap.h"
 #include "gate.h"
+#include "mm.h"
+
+struct Global_Memory_Descriptor memory_management_struct = {{0}, 0};
 
 void Start_Kernel(void) {
   int *addr = (int *)0xffff800000a00000; // 图像帧缓存的起始地址
@@ -64,10 +67,11 @@ void Start_Kernel(void) {
             0xffff800000007c00);
 
   sys_vector_init();
-
   // i = 1 / 0; // 触发除0异常
-  i = *(int *)0xffff80000aa00000; // 触发缺页异常
-  
+  // i = *(int *)0xffff80000aa00000; // 触发缺页异常
+
+  init_mm();
+
   while (1)
     ;
 }
