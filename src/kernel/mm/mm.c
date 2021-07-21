@@ -1,6 +1,8 @@
 #include "mm.h"
 #include "lib.h"
 
+struct Global_Memory_Descriptor memory_management_struct = {{0}, 0};
+
 /**
  * @brief 初始化目标物理页的 page，并更新目标物理页所在 zone 的统计信息
  *
@@ -290,4 +292,103 @@ void init_mm() {
   *Phy_To_Virt(Global_CR3) = 0UL;
   // 刷新tlb，使页表项修改生效
   flush_tlb();
+}
+
+/**
+ * @brief 从 zone_select 指定的物理内存区域中分配连续的 number 个物理页
+ *
+ * @param zone_select 指定可用的物理内存区域
+ * @param number 需求的页数，最多一次分配 64 个物理页
+ * @param page_flags 分配物理页后设置的页属性
+ * @return struct Page* 返回第一页的 page 结构体地址
+ */
+struct Page *alloc_pages(int zone_select, int number,
+                         unsigned long page_flags) {
+  int i;
+  unsigned long page = 0;
+
+  int zone_start = 0;
+  int zone_end = 0;
+
+  // 设置备选的物理内存区域 zone_start ~ zone_end
+  switch (zone_select) {
+  case ZONE_DMA:
+    zone_start = 0;
+    zone_end = ZONE_DMA_INDEX;
+    break;
+
+  case ZONE_NORMAL:
+    zone_start = ZONE_DMA_INDEX;
+    zone_end = ZONE_NORMAL_INDEX;
+    break;
+
+  case ZONE_UNMAPED:
+    zone_start = ZONE_UNMAPED_INDEX;
+    zone_end = memory_management_struct.zones_size - 1;
+    break;
+
+  default:
+    color_printk(RED, BLACK, "alloc_pages error zone_select index\n");
+    return NULL;
+    break;
+  }
+
+  // 遍历所有备选的 zone，从某一个 zone 中分配所有的物理页
+  for (i = zone_start; i <= zone_end; i++) {
+    struct Zone *z;
+    unsigned long j;
+    unsigned long start, end, length;
+    unsigned long tmp;
+
+    // 若当前 zone 中剩余的可用物理页数不能满足需求，跳转到下一个 zone
+    if ((memory_management_struct.zones_struct + i)->page_free_count < number)
+      continue;
+
+    z = memory_management_struct.zones_struct + i;
+    start = z->zone_start_address >> PAGE_2M_SHIFT;
+    end = z->zone_end_address >> PAGE_2M_SHIFT;
+    length = z->zone_length >> PAGE_2M_SHIFT;
+
+    // start % 64 = 该 zone 的第一个 bit 在 bitsmap 中以 64 为步进单位的偏移
+    // tmp 为下面外循环第一次遍历的位数，可使后续的循环都对齐到 64，方便以64步进
+    tmp = 64 - start % 64;
+    // 遍历bitsmap中的zone区域，每次外循环遍历一个 sizeof(unsigned long)=64位
+    for (j = start; j <= end; j += j % 64 ? tmp : 64) {
+      unsigned long *p = memory_management_struct.bits_map + (j >> 6); // 当前遍历到第几个64
+      unsigned long shift = j % 64;
+      unsigned long k;
+      // 遍历当前步进长度中的每一个bit，直到从某个 bit 开始可以满足需求
+      for (k = shift; k < 64 - shift; k++) {
+        /**
+         * 1. 相邻 64 位步进单元的拼接
+         * bitsmap 中的每一个 64 从低位开始占用
+         * 将第一个64的高位拼上第二个64的低位，组成一个64位的字符，保证一次检索最多64位
+         * [    *p >> k    |  *(p + 1) << (64 - k) ]
+         * [    *p >> k    |**********************]
+         *                        *p 左移 k 位
+         * [***************|  *(p + 1) << (64 - k) ]
+         *  *(p+1) 右移 64-k 位
+         * 
+         * 2. (1UL << number) - 1 将 64 位单元的低 number 位置位
+         * 
+         * 3. (1 & 2) 若等于0，表示低 number 位全部为空，可以占用 
+         */
+        if (!(((*p >> k) | (*(p + 1) << (64 - k))) &
+              (number == 64 ? 0xffffffffffffffffUL : ((1UL << number) - 1)))) {
+          unsigned long l;
+          page = j + k - 1;
+          for (l = 0; l < number; l++) // 初始化每一个空闲的 page
+            page_init(memory_management_struct.pages_struct + page + l,
+                      page_flags);
+
+          goto find_free_pages;
+        }
+      }
+    }
+
+    return NULL;
+
+  find_free_pages:
+    return (struct Page *)(memory_management_struct.pages_struct + page);
+  }
 }

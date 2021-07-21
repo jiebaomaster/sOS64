@@ -147,6 +147,14 @@ int ZONE_DMA_INDEX = 0;
 int ZONE_NORMAL_INDEX = 0;  // low 1GB RAM ,was mapped in pagetable
 int ZONE_UNMAPED_INDEX = 0; // above 1GB RAM,unmapped in pagetable
 
+////alloc_pages zone_select
+//
+#define ZONE_DMA	(1 << 0)
+//
+#define ZONE_NORMAL	(1 << 1)
+//
+#define ZONE_UNMAPED	(1 << 2)
+
 extern struct Global_Memory_Descriptor memory_management_struct;
 
 /**
@@ -179,5 +187,15 @@ static inline unsigned long *Get_gdt() {
   __asm__ __volatile__("movq	%%cr3,	%0	\n\t" : "=r"(tmp) : : "memory");
   return tmp;
 }
+
+/**
+ * @brief 从 zone_select 指定的物理内存区域中分配连续的 number 个物理页
+ * 
+ * @param zone_select 指定从哪个物理内存区域分配
+ * @param number 需求的页数
+ * @param page_flags 分配物理页后设置的页属性
+ * @return struct Page* 返回第一页的 page 结构体地址
+ */
+struct Page* alloc_pages(int zone_select, int number, unsigned long page_flags);
 
 #endif

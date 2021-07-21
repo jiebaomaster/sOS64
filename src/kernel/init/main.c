@@ -1,16 +1,14 @@
+#include "gate.h"
 #include "lib.h"
+#include "mm.h"
 #include "printk.h"
 #include "trap.h"
-#include "gate.h"
-#include "mm.h"
 
 // 链接脚本中定义的记录段地址的变量
 extern char _text;
 extern char _etext;
 extern char _edata;
 extern char _end;
-
-struct Global_Memory_Descriptor memory_management_struct = {{0}, 0};
 
 void Start_Kernel(void) {
   int *addr = (int *)0xffff800000a00000; // 图像帧缓存的起始地址
@@ -38,14 +36,37 @@ void Start_Kernel(void) {
             0xffff800000007c00);
   // 初始化异常处理
   sys_vector_init();
-  
+
   memory_management_struct.start_code = (unsigned long)&_text;
   memory_management_struct.end_code = (unsigned long)&_etext;
   memory_management_struct.end_data = (unsigned long)&_edata;
   memory_management_struct.end_brk = (unsigned long)&_end;
 
-  color_printk(RED,BLACK,"memory init \n");
+  color_printk(RED, BLACK, "memory init \n");
   init_mm();
+
+
+  // 测试物理页分配函数
+  color_printk(RED, BLACK, "memory_management_struct.bits_map:%#018lx\n",
+               *memory_management_struct.bits_map);
+  color_printk(RED, BLACK, "memory_management_struct.bits_map:%#018lx\n",
+               *(memory_management_struct.bits_map + 1));
+
+  struct Page *page =
+      alloc_pages(ZONE_NORMAL, 64, PG_PTable_Maped | PG_Active | PG_Kernel);
+
+  for (i = 0; i <= 64; i++) {
+    color_printk(INDIGO, BLACK, "page%d\tattribute:%#018lx\taddress:%#018lx\t",
+                 i, (page + i)->attribute, (page + i)->PHY_address);
+    i++;
+    color_printk(INDIGO, BLACK, "page%d\tattribute:%#018lx\taddress:%#018lx\n",
+                 i, (page + i)->attribute, (page + i)->PHY_address);
+  }
+
+  color_printk(RED, BLACK, "memory_management_struct.bits_map:%#018lx\n",
+               *memory_management_struct.bits_map);
+  color_printk(RED, BLACK, "memory_management_struct.bits_map:%#018lx\n",
+               *(memory_management_struct.bits_map + 1));
 
   while (1)
     ;
