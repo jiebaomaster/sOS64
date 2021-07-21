@@ -1,3 +1,5 @@
 *.img
 *.bin
 *.o
+*.s
+system
