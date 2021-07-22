@@ -120,9 +120,9 @@ void init_interrupt() {
   io_out8(0xa1, 0x02);
   io_out8(0xa1, 0x01);
 
-  // 8259A-M/S OCW1
-  io_out8(0x21, 0x00);
-  io_out8(0xa1, 0x00);
+  // 8259A-M/S OCW1 TODO 屏蔽除了键盘中断外的所有中断
+  io_out8(0x21, 0xfd);
+  io_out8(0xa1, 0xff);
 
   // 初始化中断处理之后开中断
   sti();
@@ -137,6 +137,11 @@ void init_interrupt() {
 void do_IRQ(unsigned long regs, unsigned long nr) {
   // TODO 当前中断处理时仅输出中断处理号
   printk("do_IRQ:%#08x\t", nr);
+
+  // 读取键盘控制器的读写缓冲区，获取按键扫描码
+  unsigned char x = io_in8(0x60);
+	color_printk(RED,BLACK,"key code:%#08x\n",x);
+  
   // 中断处理完毕后必须手动向中断控制器发送中断结束EOI指令，来复位ISR寄存器的对应位
   io_out8(0x20, 0x20);
 }
