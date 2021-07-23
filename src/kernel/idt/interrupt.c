@@ -7,7 +7,7 @@
 // 中断处理函数的中保存执行现场的部分
 #define SAVE_ALL                                                               \
   "cld;			\n\t"                                                                \
-  "pushq	%rax;		\n\t"                                                          \
+  "pushq	%rax;		\n\t"    /* FUNC 占位，为了共用异常退出代码 */     \
   "pushq	%rax;		\n\t"                                                          \
   "movq	%es,	%rax;	\n\t"                                                       \
   "pushq	%rax;		\n\t"                                                          \
@@ -131,10 +131,10 @@ void init_interrupt() {
 /**
  * @brief 统一的中断处理函数，所有的中断都先跳转到这里，再根据中断向量号分发给各自的真实处理函数
  *
- * @param regs 中断发生时栈顶指针，可根据 entry.S 中定义的偏移量访问到所有保存的现场寄存器
+ * @param regs 中断发生时栈顶指针，可访问到所有保存的现场寄存器
  * @param nr 中断向量号
  */
-void do_IRQ(unsigned long regs, unsigned long nr) {
+void do_IRQ(struct pt_regs * regs, unsigned long nr) {
   // TODO 当前中断处理时仅输出中断处理号
   printk("do_IRQ:%#08x\t", nr);
 

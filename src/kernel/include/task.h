@@ -1,0 +1,186 @@
+#ifndef __TASK_H__
+#define __TASK_H__
+
+#include "list.h"
+#include "mm.h"
+#include "cpu.h"
+
+/* 各段在 GDT 中的偏移*/
+#define KERNEL_CS (0x80)
+#define KERNEL_DS (0x10)
+
+// 内核线程栈的大小 32KB
+#define STACK_SIZE 32768
+
+// 内存空间分布结构体，记录进程页表和各程序段信息
+struct mm_struct {
+  pml4t_t *pgd; // 顶级页表的指针
+
+  unsigned long start_code, end_code;     // 代码段空间
+  unsigned long start_data, end_data;     // 数据段空间
+  unsigned long start_rodata, end_rodata; // 只读数据段空间
+  unsigned long start_brk, end_brk; // 动态内存分配区（堆区域）
+  unsigned long start_stack;        // 应用层栈基地址
+};
+
+// 进程切换时保留的状态信息
+struct thread_struct {
+  unsigned long rsp0; // 内核层栈基地址
+  unsigned long rip;  // 内核层代码指针
+  unsigned long rsp;  // 内核层当前栈指针
+
+  unsigned long fs;
+  unsigned long gs;
+
+  unsigned long cr2;        // 缺页异常发生的地址
+  unsigned long trap_nr;    // 产生异常时的异常号
+  unsigned long error_code; // 异常的错误代码
+};
+
+/* task_struct.state */
+#define TASK_RUNNING (1 << 0) // 运行态
+#define TASK_INTERRUPTIBLE (1 << 1) // 可中断
+#define TASK_UNINTERRUPTIBLE (1 << 2) // 不可中断
+#define TASK_ZOMBLE (1 << 3) // 僵尸进程
+#define TASK_STOPPED (1 << 4) // 停止
+
+/* task_struct.flags */
+#define PF_KTHREAD (1 << 0) // 内核线程
+
+// 进程控制块，记录和收集程序运行时的资源消耗信息，并维护程序运行的现场环境
+struct task_struct {
+  struct List list;    // 链接所有task_struct结构体的链表节点
+  volatile long state; // 进程状态：运行态、停止态、可中断态等
+  unsigned long flags; // 进程标志：进程、线程、内核线程
+
+  struct mm_struct *mm;         // 进程的页表和各程序段信息
+  struct thread_struct *thread; // 进程切换时保留的状态信息
+
+  unsigned long
+      addr_limit; // 进程地址空间范围
+                  // 0x0000,0000,0000,0000 - 0x0000,7fff,ffff,ffff 应用层
+                  // 0xffff,8000,0000,0000 - 0xffff,ffff,ffff,ffff 内核层
+
+  long pid;      // 进程号
+  long counter;  // 进程剩余时间片
+  long signal;   // 进程持有的信号
+  long priority; // 进程优先级
+};
+
+
+/**
+ * 进程内核态栈和进程 task_struct 的联合体
+ * 每一个进程都有独立的内核态栈，而进程的 task_struct 就放置在内核态栈的低地址空间内
+ * 每个联合体对齐到 32KB，原因详见 get_current()
+ * 
+ * 高地址   -------   <--- 栈基地址，栈从高地址向低地址扩张
+ *        |       |      |  
+ *        |       |      | 内核态栈空间，大约 31KB
+ *        |       |      |
+ *        |-------|     ---
+ *        |*******|      | task_struct 空间，大约 1KB
+ * 低地址   -------   <---- task_struct 起始地址
+ */
+union task_union {
+  struct task_struct task;
+  unsigned long stack[STACK_SIZE / sizeof(unsigned long)];
+} __attribute__((aligned(8))); // 按 8 字节对齐
+
+struct mm_struct init_mm;
+struct thread_struct init_thread;
+
+#define INIT_TASK(task) \
+{ \
+  .state = TASK_INTERRUPTIBLE, \
+  .flags = PF_KTHREAD, \
+  .mm = &init_mm, \
+  .thread = &init_thread, \
+  .addr_limit = 0xffff800000000000, \
+  .pid = 0, \
+  .counter = 1, \
+  .signal = 0, \
+  .priority = 0 \
+}
+
+union task_union init_task_union __attribute((__section(".data.init_task"))) = {
+  INIT_TASK(init_task_union.stack)
+};
+
+// 给每个 CPU 都初始化一个起始进程
+struct task_struct *init_task[NR_CPUS] = {&init_task_union.task, 0};
+
+struct mm_struct init_mm = {0};
+struct thread_struct init_thread = {
+  .rsp0 = (unsigned long)(init_task_union.stack +
+                          STACK_SIZE / sizeof(unsigned long)),
+  .rsp = (unsigned long)(init_task_union.stack +
+                         STACK_SIZE / sizeof(unsigned long)),
+  .fs = KERNEL_DS,
+  .gs = KERNEL_DS,
+  .cr2 = 0,
+  .trap_nr = 0,
+  .error_code = 0
+};
+
+struct tss_struct {
+  unsigned int reserved0;
+  unsigned long rsp0;
+  unsigned long rsp1;
+  unsigned long rsp2;
+  unsigned long reserved1;
+  unsigned long ist1;
+  unsigned long ist2;
+  unsigned long ist3;
+  unsigned long ist4;
+  unsigned long ist5;
+  unsigned long ist6;
+  unsigned long ist7;
+  unsigned long reserved2;
+  unsigned short reserved3;
+  unsigned short iomapbaseaddr;
+}__attribute((packed));
+
+#define INIT_TSS { \
+  .reserved0 = 0, \
+  .rsp0 = (unsigned long)(init_task_union.stack + STACK_SIZE / sizeof(unsigned long)), \
+  .rsp1 = (unsigned long)(init_task_union.stack + STACK_SIZE / sizeof(unsigned long)), \
+  .rsp2 = (unsigned long)(init_task_union.stack + STACK_SIZE / sizeof(unsigned long)), \
+  .reserved1 = 0, \
+  .ist1 = 0xffff800000007c00, \
+  .ist2 = 0xffff800000007c00, \
+  .ist3 = 0xffff800000007c00, \
+  .ist4 = 0xffff800000007c00, \
+  .ist5 = 0xffff800000007c00, \
+  .ist6 = 0xffff800000007c00, \
+  .ist7 = 0xffff800000007c00, \
+  .reserved2 = 0, \
+  .reserved3 = 0, \
+  .iomapbaseaddr = 0 \
+}
+
+struct tss_struct init_tss[NR_CPUS] = {[0 ... NR_CPUS-1] = INIT_TSS};
+
+/**
+ * @brief 由当前的栈顶指针获取当前执行进程的 task_struct
+ * 当前执行进程的内核态栈的栈顶指针必定在 rsp 寄存器中，而 task_struct 在栈的低地址处
+ * 联合体对齐到 32KB，故当前栈顶地址按 32KB 下边界对齐后就是当前进程的 task_struct 起始地址
+ *
+ * 32767（32KB-1）取反=0xffffffffffff8000，
+ * 再与 rsp 的值逻辑与，即将 rsp 按 32KB 下边界对齐
+ * 
+ * @return struct task_struct* 当前执行进程的 task_struct
+ */
+static inline struct task_struct * get_current() {
+  struct task_struct *current = NULL;
+  __asm__ __volatile__ ("andq %%rsp,%0 \n\t":"=r"(current):"0"(~32767UL));
+  return current;
+}
+
+#define current get_current()
+
+// 同 get_current()
+#define GET_CURRENT \
+  "movq %rsp, %rbx \n\t" \
+  "andq $-32768, %rbx \n\t"
+
+#endif

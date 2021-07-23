@@ -38,6 +38,12 @@
 #define Phy_To_Virt(addr)                                                      \
   ((unsigned long *)((unsigned long)(addr) + PAGE_OFFSET))
 
+typedef struct {
+  unsigned long pml4t;
+} pml4t_t;
+
+
+
 // cr3 寄存器保存顶级页表地址
 unsigned long *Global_CR3 = NULL;
 

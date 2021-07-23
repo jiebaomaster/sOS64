@@ -11,6 +11,7 @@ SECTIONS
 
     _etext = .;
   }
+
   . = ALIGN(8);
   .data :
   {
@@ -19,6 +20,13 @@ SECTIONS
 
     _edata = .;
   }
+
+  . = ALIGN(32768);
+  .data.init_task : 
+  {
+    *(.data.init_task)
+  }
+  
   .bss :
   {
     _bss = .;
