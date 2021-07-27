@@ -173,7 +173,7 @@ extern struct Global_Memory_Descriptor memory_management_struct;
 unsigned long page_init(struct Page * page,unsigned long flags);
 
 // 初始化物理内存
-void init_mm();
+void init_memory();
 
 // 页表项会被 tlb 缓存，需要强制刷新 tlb 才能使页表项更新成功
 // 重新加载 cr3 即可迫使 tlb 自动刷新

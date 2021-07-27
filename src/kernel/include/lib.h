@@ -56,6 +56,35 @@ static inline void *memset(void *Address, unsigned char C, long Count) {
 }
 
 /**
+ * @brief 从 Form 处开始的内存空间拷贝 Num 个字节到 To 开始的内存空间
+ * 
+ * @param From 源地址
+ * @param To 目的地址
+ * @param Num 拷贝的字节数
+ * @return void* 
+ */
+static inline void *memcpy(void *From, void *To, long Num) {
+  int d0, d1, d2;
+  __asm__ __volatile__("cld	\n\t"
+                       "rep	\n\t"
+                       "movsq	\n\t"
+                       "testb	$4,%b4	\n\t"
+                       "je	1f	\n\t"
+                       "movsl	\n\t"
+                       "1:\ttestb	$2,%b4	\n\t"
+                       "je	2f	\n\t"
+                       "movsw	\n\t"
+                       "2:\ttestb	$1,%b4	\n\t"
+                       "je	3f	\n\t"
+                       "movsb	\n\t"
+                       "3:	\n\t"
+                       : "=&c"(d0), "=&D"(d1), "=&S"(d2)
+                       : "0"(Num / 8), "q"(Num), "1"(To), "2"(From)
+                       : "memory");
+  return To;
+}
+
+/**
  * @brief 从 io 端口 port 读取一个字节
  *
  * @param port 目标 io 端口

@@ -1,3 +1,5 @@
+#include "linkage.h"
+
 .section  .text
 
 .globl  _start
@@ -46,7 +48,7 @@ entry64:
   movq  %rax,    %es
   movq  %rax,    %gs
   movq  %rax,    %ss
-  movq  $0xffff800000007E00,  %rsp
+  movq  _stack_start(%rip),  %rsp
 
 setup_IDT: // 初始化 IDT，全部指向一个临时的处理函数 ignore_int
   leaq  ignore_int(%rip), %rdx // 接下去的多行代码初始化了一个指向 ignore_int 的中断描述符
@@ -170,6 +172,10 @@ Loop: // 原地死循环
 
 int_msg:
   .asciz  "Unknown interrupt or fault at RIP\n"
+
+// 0 号进程的栈基地址，定义在 task.h 中
+ENTRY(_stack_start)
+  .quad init_task_union + 32768
 
 //====== init page
 .align  8

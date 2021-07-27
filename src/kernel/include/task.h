@@ -4,13 +4,28 @@
 #include "list.h"
 #include "mm.h"
 #include "cpu.h"
+#include "gate.h"
+#include "ptrace.h"
 
 /* 各段在 GDT 中的偏移*/
-#define KERNEL_CS (0x80)
+#define KERNEL_CS (0x08)
 #define KERNEL_DS (0x10)
 
 // 内核线程栈的大小 32KB
 #define STACK_SIZE 32768
+
+extern char _text;
+extern char _etext;
+extern char _data;
+extern char _edata;
+extern char _rodata;
+extern char _erodata;
+extern char _bss;
+extern char _ebss;
+extern char _end;
+
+extern unsigned long _stack_start; // 0 号进程的栈基地址，head.S
+extern void ret_from_intr(); // 通用中断返回，从栈中恢复现场，entry.S
 
 // 内存空间分布结构体，记录进程页表和各程序段信息
 struct mm_struct {
@@ -102,7 +117,7 @@ struct thread_struct init_thread;
   .priority = 0 \
 }
 
-union task_union init_task_union __attribute((__section(".data.init_task"))) = {
+union task_union init_task_union __attribute((__section__(".data.init_task"))) = {
   INIT_TASK(init_task_union.stack)
 };
 
@@ -158,6 +173,7 @@ struct tss_struct {
   .iomapbaseaddr = 0 \
 }
 
+// 为每一个 CPU 设置一个 tss
 struct tss_struct init_tss[NR_CPUS] = {[0 ... NR_CPUS-1] = INIT_TSS};
 
 /**
@@ -182,5 +198,27 @@ static inline struct task_struct * get_current() {
 #define GET_CURRENT \
   "movq %rsp, %rbx \n\t" \
   "andq $-32768, %rbx \n\t"
+
+// 进程切换 prev => next
+#define switch_to(prev, next)                                                  \
+  do {                                                                         \
+    __asm__ __volatile__("pushq %%rbp \n\t"                                    \
+                         "pushq %%rax \n\t"                                    \
+                         "movq %%rsp, %0 \n\t" /* 保存prev的栈指针 */            \
+                         "movq %2, %%rsp \n\t" /* 切换到next的栈*/               \
+                         "leaq 1f(%%rip), %%rax \n\t"                          \
+                         "pushq %3 \n\t" /* 保存 next 的入口地址，jmp 返回时进入 */ \
+                         "jmp __switch_to \n\t"                                \
+                         "1: \n\t"                                             \
+                         "popq %%rax \n\t"                                     \
+                         "popq %%rbp \n\t"                                     \
+                         : "=m"(prev->thread->rsp), "=m"(prev->thread->rip)    \
+                         : "m"(next->thread->rsp), "m"(next->thread->rip),     \
+                           "D"(prev), "S"(next) /* prev和next保存在rdi和rsi中 */ \
+                         : "memory");                                          \
+  } while(0)
+
+unsigned long do_fork(struct pt_regs * regs, unsigned long clone_flags, unsigned long stack_start, unsigned long stack_size);
+void task_init();
 
 #endif

@@ -37,7 +37,7 @@ unsigned long page_init(struct Page *page, unsigned long flags) {
   return 0;
 }
 
-void init_mm() {
+void init_memory() {
   int i, j;
   unsigned long TotalMem = 0; // 可用物理内存长度，单位字节
   unsigned long phymmend;     // 物理内存空间的结束地址

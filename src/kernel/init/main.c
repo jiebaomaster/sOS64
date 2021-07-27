@@ -4,6 +4,7 @@
 #include "printk.h"
 #include "trap.h"
 #include "interrupt.h"
+#include "task.h"
 
 // 链接脚本中定义的记录段地址的变量
 extern char _text;
@@ -44,10 +45,12 @@ void Start_Kernel(void) {
   memory_management_struct.end_brk = (unsigned long)&_end;
 
   color_printk(RED, BLACK, "memory init \n");
-  init_mm();
-	color_printk(RED,BLACK,"interrupt init \n");
+  init_memory();
+	color_printk(RED, BLACK, "interrupt init \n");
   init_interrupt();
-
+  color_printk(RED, BLACK, "task_init \n");
+  task_init();
+  
   while (1)
     ;
 }
