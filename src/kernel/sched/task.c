@@ -1,13 +1,59 @@
 #include "task.h"
 
 /**
- * @brief 
+ * @brief 一段应用程序，模拟 1 号进程的应用程序部分
  * 
- * @param arg 
+ */
+void user_level_func() {
+  printk("user_level_func task is running\n");
+  while (1)
+    ;
+}
+
+/**
+ * @brief 搭建应用程序的执行环境
+ * 
+ * @param regs 
  * @return unsigned long 
  */
+unsigned long do_execve(struct pt_regs *regs) {
+  // 搭建应用程序的执行环境，P173
+  regs->rdx = 0x800000; // RIP
+  regs->rcx = 0xa00000; // RSP
+  regs->rax = 1;
+  regs->ds = 0;
+  regs->es = 0;
+  color_printk(RED, BLACK, "do_execve task is running\n");
+  // 将应用程序拷贝到线性地址处
+  memcpy(user_level_func, (void *)0x800000, 1024);
+
+  return 0;
+}
+
+/**
+ * @brief 1号进程的入口函数
+ *
+ * @param arg
+ * @return unsigned long
+ */
 unsigned long init(unsigned long arg) {
+  struct pt_regs *regs = NULL;
+
   color_printk(RED, BLACK, "init task is running, arg:%#018lx\n", arg);
+
+  current->thread->rip = (unsigned long)ret_system_call;
+  current->thread->rsp =
+      (unsigned long)current + STACK_SIZE - sizeof(struct pt_regs);
+  regs = (struct pt_regs *)current->thread->rsp;
+
+  // 参考 switch_to，采用 push+jmp 的方法跳转到 ret_system_call 处执行，
+  // 在 ret_system_call 中恢复栈中的执行现场，从而进入用户空间
+  __asm__ __volatile__("movq %1, %%rsp \n\t"
+                       "pushq %2 \n\t"
+                       "jmp do_execve \n\t" 
+                       ::"D"(regs),"m"(current->thread->rsp),
+                        "m"(current->thread->rip)
+                       : "memory");
 
   return 1;
 }
@@ -74,10 +120,10 @@ unsigned long do_fork(struct pt_regs *regs, unsigned long clone_flags,
   thd->rip = regs->rip;
   thd->rsp = (unsigned long)tsk + STACK_SIZE - sizeof(struct pt_regs);
 
-  // 若新进程是一个应用层进程，则入口地址改为中断返回地址，因为应用层通过系统调用进入内核层
-  // 的 do_fork，应该通过中断返回回到应用层
+  // 若新进程是一个应用层进程，则入口地址改为统一的系统调用返回入口，
+  // 因为应用层通过系统调用进入内核层的 do_fork
   if (!(tsk->flags & PF_KTHREAD))
-    thd->rip = regs->rip = (unsigned long)ret_from_intr;
+    thd->rip = regs->rip = (unsigned long)ret_system_call;
 
   tsk->state = TASK_RUNNING;
 
@@ -200,6 +246,9 @@ void task_init() {
   init_mm.start_brk = 0;
   init_mm.end_brk = memory_management_struct.end_brk;
   init_mm.start_stack = _stack_start;
+
+  // P173 设置 0 特权级下的代码段选择子，
+  wrmsr(0x174, KERNEL_CS);
 
   set_tss64(init_thread.rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
             init_tss[0].ist1, init_tss[0].ist2, init_tss[0].ist3,

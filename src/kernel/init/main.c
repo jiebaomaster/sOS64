@@ -30,7 +30,7 @@ void Start_Kernel(void) {
   Pos.FB_length = (Pos.XResolution * Pos.YResolution * 4);
 
   // 初始化 tss
-  load_TR(8);
+  load_TR(10);
   // tss 中所有的栈指针都指向 0xffff800000007c00
   set_tss64(0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,
             0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,

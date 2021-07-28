@@ -11,6 +11,9 @@
 #define KERNEL_CS (0x08)
 #define KERNEL_DS (0x10)
 
+#define USER_CS (0x28)
+#define USER_DS (0x30)
+
 // 内核线程栈的大小 32KB
 #define STACK_SIZE 32768
 
@@ -25,7 +28,7 @@ extern char _ebss;
 extern char _end;
 
 extern unsigned long _stack_start; // 0 号进程的栈基地址，head.S
-extern void ret_from_intr(); // 通用中断返回，从栈中恢复现场，entry.S
+extern void ret_system_call(); // 执行系统调用的返回，从栈中恢复现场，entry.S
 
 // 内存空间分布结构体，记录进程页表和各程序段信息
 struct mm_struct {

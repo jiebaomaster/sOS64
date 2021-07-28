@@ -58,6 +58,33 @@ ENTRY(ret_from_intr)
   jmp RESTORE_ALL     // TODO 当前异常返回时只恢复现场，后期可以加上进程调度、进程信号处理等工作
 
 
+// 借助 sysexit 指令执行系统调用的返回，内核空间 => 用户空间 P173
+ENTRY(ret_system_call)
+  movq  %rax, 0x80(%rsp) // 此时 rax=系统调用的返回值，因为后面恢复ds和es时会借助rax，所以这里先保存到栈中，等ds和es恢复完之后再从栈中恢复rax，这样就能将返回值传递给用户程序
+  popq  %r15  // 恢复通用寄存器 r8~r15
+  popq  %r14
+  popq  %r13
+  popq  %r12
+  popq  %r11
+  popq  %r10
+  popq  %r9
+  popq  %r8
+  popq  %rbx  // 恢复通用寄存 rbx、rcx、rdx、rsi、rdi、rbp
+  popq  %rcx  // sysexit 指令会将 rcx 加载到 rsp 中恢复3特权级的栈指针
+  popq  %rdx  // sysexit 指令会将 rdx 加载到 rip 中恢复3特权级的指令指针
+              // 上述两个寄存器需要在应用程序进入内核层之前进行特殊处理
+  popq  %rsi
+  popq  %rdi
+  popq  %rbp
+  popq  %rax          // ds 出栈
+  movq  %rax,   %ds   //
+  popq  %rax          // es 出栈
+  movq  %rax,   %es   //
+  popq  %rax
+  addq  $0x38,  %rsp  // 平衡栈，剩余的 7 个执行现场寄存器出栈
+  .byte 0x48
+  sysexit
+
 ENTRY(divide_error)   // 异常0 #DE 除 0 异常处理函数
   pushq $0            // #DE 不产生错误代码，为了确保所有异常处理函数的寄存器压栈顺序一致，压入0进行占位
   pushq %rax          // 以下三行代码，将真实处理函数的地址借助rax压栈，同时不改变rax的值
