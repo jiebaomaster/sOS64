@@ -58,6 +58,42 @@ ENTRY(ret_from_intr)
   jmp RESTORE_ALL     // TODO 当前异常返回时只恢复现场，后期可以加上进程调度、进程信号处理等工作
 
 
+// 借助 sysenter 指令执行系统调用，sysenter 指令执行之后会跳转到内核层的该处执行，
+// 用户空间 => 内核空间 P180
+ENTRY(system_call)
+  sti         // 执行 sysenter 指令会关中断，这里手动开中断
+  subq  $0x38, %rsp
+  cld
+              // 保存应用程序的执行现场
+  pushq %rax  // 保存通用寄存器 rax，此时表示系统调用 API 的向量号
+  movq  %es,  %rax  // 保存 es
+  pushq %rax        //
+  movq  %ds,  %rax  // 保存 ds
+  pushq %rax        //
+  xorq  %rax, %rax  // rax 清零
+  pushq %rbp  // 保存通用寄存 rbx、rcx、rdx、rsi、rdi、rbp
+  pushq %rdi
+  pushq %rsi
+  pushq %rdx
+  pushq %rcx
+  pushq %rbx
+  pushq %r8   // 保存恢复通用寄存器 r8~r15
+  pushq %r9
+  pushq %r10
+  pushq %r11
+  pushq %r12
+  pushq %r13
+  pushq %r14
+  pushq %r15
+
+  movq  $0x10,  %rdx // 重新加载内核数据段，因为处理函数属于内核段
+  movq  %rdx,   %ds
+  movq  %rdx,   %es
+
+  movq  %rsp,   %rdi // 此时的栈顶指针，作为参数 1 传递给 system_call_function
+  callq system_call_function // 调用统一的系统调用入口函数
+                             // 系统调用返回后继续执行下面的系统调用返回
+
 // 借助 sysexit 指令执行系统调用的返回，内核空间 => 用户空间 P173
 ENTRY(ret_system_call)
   movq  %rax, 0x80(%rsp) // 此时 rax=系统调用的返回值，因为后面恢复ds和es时会借助rax，所以这里先保存到栈中，等ds和es恢复完之后再从栈中恢复rax，这样就能将返回值传递给用户程序
@@ -97,7 +133,7 @@ error_code: // 保存现场执行环境
   pushq %rax        //
   movq  %ds,  %rax  // 保存 ds
   pushq %rax        //
-  xorq  %rax, %rax  // rax 清理
+  xorq  %rax, %rax  // rax 清零
 
   pushq %rbp  // 保存通用寄存 rbx、rcx、rdx、rsi、rdi、rbp
   pushq %rdi

@@ -28,6 +28,7 @@ extern char _ebss;
 extern char _end;
 
 extern unsigned long _stack_start; // 0 号进程的栈基地址，head.S
+extern void system_call(); // 执行系统调用的进入，保存应用程序的执行现场
 extern void ret_system_call(); // 执行系统调用的返回，从栈中恢复现场，entry.S
 
 // 内存空间分布结构体，记录进程页表和各程序段信息
@@ -223,5 +224,34 @@ static inline struct task_struct * get_current() {
 
 unsigned long do_fork(struct pt_regs * regs, unsigned long clone_flags, unsigned long stack_start, unsigned long stack_size);
 void task_init();
+
+#define MAX_SYSTEM_CALL_NR 128 // 最多 128 个系统调用
+
+// 系统调用函数指针类型
+typedef unsigned long (*system_call_t)(struct pt_regs *regs);
+
+// 未定义处理程序的系统调用的通用处理，仅输出系统调用号
+unsigned long no_system_call(struct pt_regs * regs) {
+  printk("no_system_call is calling, NR:%#04x\n", regs->rax);
+  return -1;
+}
+
+/**
+ * @brief 1 号系统调用的处理函数，输出 regs->rdi 指向的字符串
+ * 
+ * @param regs 
+ * @return unsigned long 
+ */
+unsigned long sys_printf(struct pt_regs * regs) {
+  printk((char *)regs->rdi);
+  return 1;
+}
+
+// 全局系统调用函数指针数组，全部初始化成未定义系统调用的处理函数
+system_call_t system_call_table[MAX_SYSTEM_CALL_NR] = {
+  [0] = no_system_call,
+  [1] = sys_printf, // 注册 1 号系统调用的处理函数
+  [2 ... MAX_SYSTEM_CALL_NR - 1] = no_system_call
+};
 
 #endif

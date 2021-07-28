@@ -5,7 +5,22 @@
  * 
  */
 void user_level_func() {
+  long ret = 0;
+  char string[] = "hello world!\n";
+
   printk("user_level_func task is running\n");
+
+  __asm__ __volatile__ (
+      "leaq sysexit_return_address(%%rip), %%rdx \n\t" // rdx=rip
+      "movq %%rsp,  %%rcx \n\t" // rcx=rsp，以上两句保存应用程序的现场
+      "sysenter \n\t"           // 执行系统调用
+      "sysexit_return_address:  \n\t"
+      : "=a"(ret) // ret=rax
+      : "0"(1),"D"(string)   // rax=1，调用 15 号系统调用；rdi=string，用寄存器传递字符串地址给系统调用
+      : "memory");
+
+  printk("user_level_func task called sysenter, ret:%ld\n", ret);
+
   while (1)
     ;
 }
@@ -18,7 +33,7 @@ void user_level_func() {
  */
 unsigned long do_execve(struct pt_regs *regs) {
   // 搭建应用程序的执行环境，P173
-  regs->rdx = 0x800000; // RIP
+  regs->rdx = 0x800000; // RIP，do_execve返回时，切换到这里执行
   regs->rcx = 0xa00000; // RSP
   regs->rax = 1;
   regs->ds = 0;
@@ -145,6 +160,17 @@ unsigned long do_exit(unsigned long code) {
 }
 
 /**
+ * @brief 统一的系统调用入口函数，从栈的 rax 寄存器中读取系统调用向量号，
+ *        并调用相应的处理程序
+ * 
+ * @param regs 当前栈顶指针，应用程序的执行环境
+ * @return unsigned long 
+ */
+unsigned long system_call_function(struct pt_regs * regs) {
+  return system_call_table[regs->rax](regs);
+}
+
+/**
  * 内核线程的入口
  * 从栈中恢复执行现场，运行内核线程函数，最后退出进程
  */
@@ -247,8 +273,12 @@ void task_init() {
   init_mm.end_brk = memory_management_struct.end_brk;
   init_mm.start_stack = _stack_start;
 
-  // P173 设置 0 特权级下的代码段选择子，
+  // P173 P180 设置 0 特权级下的代码段选择子
   wrmsr(0x174, KERNEL_CS);
+  // P180 sysenter 进入内核层载入的 ESP
+	wrmsr(0x175, current->thread->rsp0);
+	// P180 sysenter 进入内核层载入的 EIP
+  wrmsr(0x176, (unsigned long)system_call);
 
   set_tss64(init_thread.rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
             init_tss[0].ist1, init_tss[0].ist2, init_tss[0].ist3,
