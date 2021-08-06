@@ -1,37 +1,49 @@
+; 内存地址空间
+;|----------------------|
+;|  100000 ~ END  |
+;|     KERNEL  |
+;|----------------------|
+;|  E0000 ~ 100000  |
+;| Extended System BIOS |
+;|----------------------|
+;|  C0000 ~ Dffff  |
+;|     Expansion Area   |
+;|----------------------|
+;|  A0000 ~ bffff  |
+;|   Legacy Video Area  |
+;|----------------------|
+;|  9f000 ~ A0000  |
+;|   BIOS reserve  |
+;|----------------------|
+;|  90000 ~ 9f000  |
+;|   kernel tmpbuf  |
+;|----------------------|
+;|  10000 ~ 90000  |
+;|     LOADER  |
+;|----------------------|
+;|  8000 ~ 10000  |
+;|    VBE info  |
+;|----------------------|
+;|  7e00 ~ 8000  |
+;|    mem info  |
+;|----------------------|
+;|  7c00 ~ 7e00  |
+;|   MBR (BOOT)  |
+;|----------------------|
+;|  0000 ~ 7c00  |
+;|   BIOS Code  |
+;|----------------------|
+
+  
   org 0x7c00
 
 BaseOfStack     equ   0x7c00
 BaseOfLoader    equ   0x1000 ; loader 代码所在地址为 0x1000 << 4 + 0x00 = 0x10000
 OffsetOfLoader  equ   0x00
 
-RootDirSectors            equ   14  ; 根目录占用的扇区数
-                                    ; (BPB_RootEntCnt * 32 + BPB_BytesPerSec - 1) / BPB_BytesPerSec = 14
-SectorNumOfRootDirStart   equ   19  ; 根目录的起始扇区号
-                                    ; BPB_RsvdSecCnt + BPB_FATSz16 * BPB_NumFATs = 19
-SectorNumOfFAT1Start      equ   1   ; FAT1 表的起始扇区号，FAT1前只有一个保留扇区（引导扇区）
-SectorBalance             equ   17  ; 
-
   jmp   short Label_Start
   nop
-  BS_OEMName      db  'MINEboot'      ; 生产商名称
-  BPB_BytesPerSec dw  512             ; 每扇区字节数
-  BPB_SecPerClus  db  1               ; 每簇扇区数
-  BPB_RsvdSecCnt  dw  1               ; 保留扇区数
-  BPB_NumFATs     db  2               ; FAT 表的份数
-  BPB_RootEntCnt  dw  224             ; 根目录可容纳的目录项数
-  BPB_TotSec16    dw  2880            ; 总扇区数
-  BPB_Media       db  0xf0            ; 介质描述符
-  BPB_FATSz16     dw  9               ; 每 FAT 扇区数
-  BPB_SecPerTrk   dw  18              ; 每磁道扇区数
-  BPB_NumHeads    dw  2               ; 磁头数
-  BPB_HiddSec     dd  0               ; 隐藏扇区数
-  BPB_TotSec32    dd  0               ; 如果 BPB_TotSec16=0，则由这个值记录扇区数
-  BS_DrvNum       db  0               ; int 13h 的驱动器号
-  BS_Reserved1    db  0               ; 未使用
-  BS_BootSig      db  29h             ; 扩展引导标记
-  BS_VolID        dd  0               ; 卷序列号
-  BS_VolLab       db  'boot loader'   ; 卷标
-  BS_FileSysType  db  'FAT12   '      ; 文件系统类型
+  %include    "fat12.inc"
 
 Label_Start:
 
@@ -64,19 +76,8 @@ Label_Start:
   mov   bx,   000fh   ; bh=00h 页码，bl=0fh 黑底白字
   mov   dx,   0000h   ; dh=00h 游标坐标行号，dl=00h 游标坐标列号
   mov   cx,   10      ; cx=10 显示的字符串长度为 10
-  push  ax
-  mov   ax,   ds
-  mov   es,   ax      ; 设置扩展段指针
-                      ; es:bp 要显示字符串的内存地址
-  pop   ax
   mov   bp,   StartBootMessage ; 用 bp 保存字符串的内存地址
   int   10h
-
-;======= reset floppy
-  
-  xor   ah,   ah    ; 功能号 ah=00
-  xor   dl,   dl    ; dl=00h 代表第一个软盘
-  int   13h
 
 ;======= search loader.bin
 
@@ -90,7 +91,7 @@ Lable_Search_In_Root_Dir_Begin:           ; 搜索所有根目录占用的所有
   mov   es,   ax                ;
   mov   bx,   8000h             ; 目标缓冲区地址 es:bx=0x00:0x8000
   mov   ax,   [SectorNo]        ; 待读取的扇区号
-  mov   cl,   1                 ; 读取的扇区数量
+  mov   cx,   1                 ; 读取的扇区数量
   call  Func_ReadOneSector      ; 读取第 SectorNo 个扇区到内存中
   mov   si,   LoaderFileName
   mov   di,   8000h             ; 存放目标扇区数据的缓冲区地址
@@ -147,13 +148,18 @@ Label_No_LoaderBin:
 ;======= found loader.bin name in root director struct
 
 Label_FileName_Found:
-  mov   ax,   RootDirSectors
+  mov   cx,   [BPB_SecPerClus] ; cx=8
   and   di,   0ffe0h          ; di=找到的目录的地址，对齐0x20
   add   di,   01ah            ; DIR_FstClus 字段的偏移
-  mov   cx,   word  [es:di]   ; 取出 DIR_FstClus 字段，即第一个簇号
-  push  cx
-  add   cx,   ax
-  add   cx,   SectorBalance
+  mov   ax,   word  [es:di]   ; 取出 DIR_FstClus 字段，即第一个簇号，存储空间的最小分配单位为簇
+  push  ax
+  sub   ax,   2 ; ax-=2，得实际簇号，FAT 相关，排除保留项 FAT[0],FAT[1]
+  mul   cl      ; ax*=8，得文件的第一个扇区的逻辑扇区号偏移
+  mov   cx,   RootDirSectors ; cx=14
+  add   cx,   ax ; 加上根目录占用的扇区数
+  ;add   cx,   SectorBalance
+  add   cx,   SectorNumOfRootDirStart ; 加上根目录的起始扇区号
+                              ; cx 最终得到文件的第一个扇区的逻辑扇区号
   mov   ax,   BaseOfLoader    ; 设置 Func_ReadOneSector 参数
   mov   es,   ax              ;
   mov   bx,   OffsetOfLoader  ; ES:BX 目标缓冲区的起始地址
@@ -164,58 +170,54 @@ Label_Go_On_Loading_File:
   push  bx
   mov   ah,   0eh
   mov   al,   '.'
-  mov   bl,   0fh
+  mov   bx,   0fh
   int   10h         ; 每读出一个簇，输出一个 “.”
   pop   bx
   pop   ax
 
-  mov   cl,   1     ; 设置 Func_ReadOneSector 参数，读取一个簇
+  mov   cx,   [BPB_SecPerClus]    ; 设置 Func_ReadOneSector 参数，读取一个簇
   call  Func_ReadOneSector
   pop   ax
   call  Func_GetFATEntry
   cmp   ax,   0fffh               ; FAT 表项内容为0xfff表示这是文件最后一个簇
   jz    Label_File_Loaded         ; loader 加载完成
   push  ax
+
+  mov   cx,   [BPB_SecPerClus]
+  sub   ax,   2
+  mul   cl
+
   mov   dx,   RootDirSectors
   add   ax,   dx
-  add   ax,   SectorBalance
-  add   bx,   [BPB_BytesPerSec]   ; 地址+512
+  ;add   ax,   SectorBalance
+  add   ax,   SectorNumOfRootDirStart
+  add   bx,   0x1000
   jmp   Label_Go_On_Loading_File  ; 继续加载下一个簇
 
 Label_File_Loaded:
   jmp   BaseOfLoader:OffsetOfLoader   ; loader 程序加载完成，跳转到 loader 执行
 
 ;======= read one sector from floppy
-; arg1 AX 起始扇区号，逻辑扇区号，需要转换成 柱面/磁头/扇区 格式供中断使用
-; arg2 CL 读入扇区数量
+; INT 13h，AH=42h 磁盘读取扩展操作 P250
+; arg1 AX 逻辑扇区号，从 0 开始
+; arg2 CX 读入扇区数量
 ; arg3 ES:BX 目标缓冲区的起始地址
 Func_ReadOneSector:
-  push  bp
-  mov   bp,   sp
-  sub   esp,  2                 ; 栈上开辟 2 字节的空间
-  mov   byte  [bp - 2],   cl    ; 需要读取的扇区数量入栈
-  push  bx                      ; 目标缓冲区地址入栈
-  mov   bl,   [BPB_SecPerTrk]   ; 每磁道扇区数
-  div   bl                      ; ax/bl，al=商，ah=余数
-  inc   ah                      ; ah++ 起始扇区号
-  mov   cl,   ah                ; cl bit0-5 扇区号，bit6-7 磁道号（柱面号）的高 2 位
-  mov   dh,   al                ; dh 磁头号
-  shr   al,   1                 ; al = al >> 1 柱面号
-  mov   ch,   al                ; ch 磁道号（柱面号）的低8位
-  and   dh,   1                 ; dh = a & 1 磁头号
-  pop   bx
-  mov   dl,   [BS_DrvNum]       ; 驱动器号
-
-Label_Go_On_Reading:
-  mov   ah,   2                 ; 功能号 ah=02h
-  mov   al,   byte  [bp - 2]    ; al 读取的扇区数
+                      ; 在栈中构建调用参数
+  push  dword 00h     ; 64 位的传输缓冲区地址扩展
+  push  dword eax     ; 扇区起始号
+  push  word  es      ; 传输缓冲区地址（段）
+  push  word  bx      ; 传输缓冲区地址（偏移）
+  push  word  cx      ; 传输的扇区数
+  push  word  10h     ; 参数列表的长度
+  mov   ah,   42h     ; 功能号，逻辑块寻址功能
+  mov   dl,   00h     ; DL 磁盘驱动器号，00h 代表第一个软盘驱动器
+  mov   si,   sp      ; DS:SI，栈中参数的地址
   int   13h
-  jc    Label_Go_On_Reading     ; 读取成功时 CF=0，继续向下执行，否则跳转回去再次尝试读取
-  add   esp,  2                 ; 平衡栈
-  pop   bp
+  add   sp,   10h     ; 平衡栈 sp+=16B
   ret
 
-;=======	get FAT Entry 根据FAT表项索引出下一个簇号
+;=======  get FAT Entry 根据FAT表项索引出下一个簇号
 ; arg1 AX = FAT Entry Number
 ; ret AX = Next FAT Entry Number
 Func_GetFATEntry:
@@ -238,10 +240,10 @@ Label_Even:
   xor   dx,   dx
   mov   bx,   [BPB_BytesPerSec]
   div   bx              ; ax=ax/bx 商ax为FAT表项的偏移扇区号，余数dx为扇区内偏移
-  push	dx
+  push  dx
   mov   bx,   8000h                 ; arg3 目标缓存区地址
   add   ax,   SectorNumOfFAT1Start  ; arg1 扇区号
-  mov   cl,   2                     ; arg2 读入的扇区数量，这里读取2个扇区，可以应对FAT表项跨扇区的情况
+  mov   cx,   2                     ; arg2 读入的扇区数量，这里读取2个扇区，可以应对FAT表项跨扇区的情况
   call  Func_ReadOneSector          ; 读取扇区
   
   pop   dx

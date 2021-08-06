@@ -6,8 +6,8 @@ org 0x10000
 BaseOfKernelFile        equ   0x00      ;
 OffsetOfKernelFile      equ   0x100000  ; 内核文件存储地址的偏移
 
-BaseOfTmpKernelAddr     equ   0x00      ;
-OffsetOfTmpKernelAddr   equ   0x7E00    ; 内核文件临时存储地址的偏移
+BaseOfTmpKernelAddr     equ   0x9000    ;
+OffsetOfTmpKernelAddr   equ   0x0000    ; 内核文件临时存储地址的偏移
 
 MemoryStructBufferAddr  equ   0x7E00    ; 读取的内存物理地址信息存储地址
 
@@ -45,9 +45,10 @@ Label_Start:
   mov   ax,   cs
   mov   ds,   ax
   mov   es,   ax
-  mov   ax,   0x00
   mov   ss,   ax
-  mov   sp,   0x7c00
+  mov   sp,   0x00
+  mov   ax,   0B800h
+  mov   gs,   ax
 
 ;======= display on screen : Start Loader......
 
@@ -74,7 +75,6 @@ Label_Start:
 
   cli                     ; 关外部中断
 
-  db    0x66              ; 在16位模式使用32位数据指令，需要加 0x66 前缀
   lgdt  [GdtPtr]          ; 开始保护模式前需要先设置临时全局描述表
   mov   eax,  cr0         ; 读 cr0
   or    eax,  1           ; 置位 cr0 的第 0 位，开启保护模式
@@ -85,14 +85,6 @@ Label_Start:
   mov   eax,  cr0         ; 读 cr0
   and   al,   11111110b   ; 清除 cr0 的第 0 位，关闭保护模式
   mov   cr0,  eax
-
-  sti
-
-;======= reset floppy
-
-  xor   ah,   ah    ; 功能号 ah=00
-  xor   dl,   dl    ; dl=00h 代表第一个软盘
-  int   13h
 
 ;======= search kernel.bin
 
@@ -163,29 +155,33 @@ Label_No_KernelBin:
 ;======= found kernel.bin name in root director struct
 
 Label_FileName_Found:
-  mov   ax,   RootDirSectors
+  mov   cx,   [BPB_SecPerClus] ; cx=8
   and   di,   0ffe0h          ; di=找到的目录的地址，对齐0x20
   add   di,   01ah            ; DIR_FstClus 字段的偏移
-  mov   cx,   word  [es:di]   ; 取出 DIR_FstClus 字段，即第一个簇号
-  push  cx
-  add   cx,   ax
-  add   cx,   SectorBalance
-  mov   eax,  BaseOfTmpKernelAddr   ; 设置 Func_ReadOneSector 参数
-  mov   es,   eax
-  mov   bx,   OffsetOfTmpKernelAddr ; ES:BX 目标缓冲区的起始地址
-  mov   ax,   cx                    ; 起始扇区号
+  mov   ax,   word  [es:di]   ; 取出 DIR_FstClus 字段，即第一个簇号
+  push  ax
+  sub   ax,   2 ; ax-=2，得实际簇号，FAT 相关，排除保留项 FAT[0],FAT[1]
+  mul   cl      ; ax*=8，得文件的第一个扇区的逻辑扇区号偏移
+  mov   cx,   RootDirSectors ; cx=14
+  add   cx,   ax ; 加上根目录占用的扇区数
+  add   cx,   SectorNumOfRootDirStart ; 加上根目录的起始扇区号
+                              ; cx 最终得到文件的第一个扇区的逻辑扇区号
+  mov   eax,  BaseOfTmpKernelAddr    ; 设置 Func_ReadOneSector 参数
+  mov   es,   eax              ;
+  mov   bx,   OffsetOfTmpKernelAddr  ; ES:BX 目标缓冲区的起始地址
+  mov   ax,   cx              ; 起始扇区号
 
 Label_Go_On_Loading_File:
   push  ax
   push  bx
   mov   ah,   0eh
   mov   al,   '.'
-  mov   bl,   0fh
+  mov   bx,   0fh
   int   10h         ; 每读出一个簇，输出一个 “.”
   pop   bx
   pop   ax
 
-  mov   cl,   1     ; 设置 Func_ReadOneSector 参数，读取一个簇
+  mov   cx,   [BPB_SecPerClus]     ; 设置 Func_ReadOneSector 参数，读取一个簇
   call  Func_ReadOneSector
   pop   ax
 
@@ -193,14 +189,11 @@ Label_Go_On_Loading_File:
 
   push  cx
   push  eax
-  push  fs
   push  edi
   push  ds
   push  esi
   ; 设置下面循环拷贝数据用到的寄存器
-  mov   cx,   200h ; 循环重复的次数 200h=512，即拷贝一个扇区
-  mov   ax,   BaseOfKernelFile
-  mov   fs,   ax
+  mov   cx,   1000h ; 循环重复的次数 1000h=4096，即拷贝一个簇=8个扇区
   mov   edi,  dword	[OffsetOfKernelFileCount]
   mov   ax,   BaseOfTmpKernelAddr
   mov   ds,   ax
@@ -221,7 +214,6 @@ Label_Mov_Kernel:	;------------------
   pop   esi
   pop   ds
   pop   edi
-  pop   fs
   pop   eax
   pop   cx
 
@@ -231,10 +223,14 @@ Label_Mov_Kernel:	;------------------
   cmp   ax,   0fffh               ; FAT 表项内容为0xfff表示这是文件最后一个簇
   jz    Label_File_Loaded         ; kernel 加载完成
   push  ax
+  
+  mov   cx,   [BPB_SecPerClus]
+  sub   ax,   2
+  mul   cl
   mov   dx,   RootDirSectors
   add   ax,   dx
-  add   ax,   SectorBalance
-  ; add   bx,   [BPB_BytesPerSec]   ; 地址+512
+  add   ax,   SectorNumOfRootDirStart
+
   jmp   Label_Go_On_Loading_File  ; 继续加载下一个簇
 
 ;======= 读取成功，通过写内存的方式在屏幕上输出一个字符 
@@ -247,13 +243,6 @@ Label_File_Loaded:
   mov   [gs:((80 * 0 + 39) * 2)], ax  ; 屏幕第 0 行, 第 39 列，输出字符
 
 ;======= 读取操作都完成了，关闭软盘驱动器
-
-KillMotor:
-  push  dx
-  mov   dx,   03F2h
-  mov   al,   0
-  out   dx,   al  ; 向IO端口 03F2h 写 0，代表关闭全部软盘驱动器
-  pop   dx
 
 ;======= get memory address size type
 
@@ -278,7 +267,7 @@ KillMotor:
 Label_Get_Mem_Struct:
   mov   eax,  0x0E820         ; 功能号 ax=E820h 从硬件查询系统地址映射信息
   mov   ecx,  20              ; struct 的大小
-  mov   edx,  0x534D4150      ; 这是一个魔法数字
+  mov   edx,  0x534D4150      ; 这是一个魔法数字，即字符串“SMAP”
   int   15h
   jc    Label_Get_Mem_Fail    ; 读取成功时 CF=0，继续向下执行，否则跳转到错误分支
   add   di,   20              ; 读取下一个 struct
@@ -369,7 +358,7 @@ Label_Get_Mem_OK:
   mov   bp,   GetSVGAVBEInfoOKMessage  ; 用 bp 保存待输出字符串的内存地址
   int   10h           ; 输出读取 SVGA 成功的提示消息
 
-;=======	Get SVGA Mode Info
+;======= TODO	Get SVGA Mode Info
 
   mov   ax,   1301h   ; 功能号 ah=13h 显示一行字符串
   mov   bx,   000Fh   ; bh=00h 页码，bl=0fh 黑底白字
@@ -452,19 +441,23 @@ Label_SVGA_Mode_Info_Finish:
 
 ;======= set the SVGA mode(VESA VBE)
   mov   ax,   4F02h
-  mov   bx,   4180h    ; 显示模式 4180h，1440 列 900 行，物理地址 e0000000h，每像素 32bit
+  mov   bx,   4118h    ; 显示模式 4118h，1024 列 768 行，物理地址 e0000000h，每像素 24bit
   int   10h
 
   cmp   ax,   004Fh
   jnz   Label_SET_SVGA_Mode_VESA_VBE_FAIL ; 若 ax!=004fh 表示设置显示模式失败，跳转到失败分支
 
 ;======= init IDT,GDT and goto protect mode
+  mov   ax,   cs
+  mov   ds,   ax
+  mov   fs,   ax
+  mov   es,   ax
   
   cli                   ; 关外部中断
   db    0x66
   lgdt  [GdtPtr]        ; 重新加载 gdt 指针
-  ; db    0x66
-  ; lidt  [IDT_POINTER]   ; （可选）重新加载 idt 指针
+  db    0x66
+  lidt  [IDT_POINTER]   ; （可选）重新加载 idt 指针
   mov   eax,  cr0
   or    eax,  1
   mov   cr0,  eax       ; 设置 cr0 的第 1 位，打开保护模式
@@ -582,33 +575,23 @@ no_support:
 [BITS 16]
 
 ;======= read one sector from floppy
-; arg1 AX 起始扇区号，逻辑扇区号，需要转换成 柱面/磁头/扇区 格式供中断使用
-; arg2 CL 读入扇区数量
+; INT 13h，AH=42h 磁盘读取扩展操作 P250
+; arg1 AX 逻辑扇区号，从 0 开始
+; arg2 CX 读入扇区数量
 ; arg3 ES:BX 目标缓冲区的起始地址
 Func_ReadOneSector:
-  push  bp
-  mov   bp,   sp
-  sub   esp,  2                 ; 栈上开辟 2 字节的空间
-  mov   byte  [bp - 2],   cl    ; 需要读取的扇区数量入栈
-  push  bx                      ; 目标缓冲区地址入栈
-  mov   bl,   [BPB_SecPerTrk]   ; 每磁道扇区数
-  div   bl                      ; ax/bl，al=商，ah=余数
-  inc   ah                      ; ah++ 起始扇区号
-  mov   cl,   ah                ; cl bit0-5 扇区号，bit6-7 磁道号（柱面号）的高 2 位
-  mov   dh,   al                ; dh 磁头号
-  shr   al,   1                 ; al = al >> 1 柱面号
-  mov   ch,   al                ; ch 磁道号（柱面号）的低8位
-  and   dh,   1                 ; dh = a & 1 磁头号
-  pop   bx
-  mov   dl,   [BS_DrvNum]       ; 驱动器号
-
-Label_Go_On_Reading:
-  mov   ah,   2                 ; 功能号 ah=02h
-  mov   al,   byte  [bp - 2]    ; al 读取的扇区数
+                      ; 在栈中构建调用参数
+  push  dword 00h     ; 64 位的传输缓冲区地址扩展
+  push  dword eax     ; 扇区起始号
+  push  word  es      ; 传输缓冲区地址（段）
+  push  word  bx      ; 传输缓冲区地址（偏移）
+  push  word  cx      ; 传输的扇区数
+  push  word  10h     ; 参数列表的长度
+  mov   ah,   42h     ; 功能号，逻辑块寻址功能
+  mov   dl,   00h     ; DL 磁盘驱动器号，00h 代表第一个软盘驱动器
+  mov   si,   sp      ; DS:SI，栈中参数的地址
   int   13h
-  jc    Label_Go_On_Reading     ; 读取成功时 CF=0，继续向下执行，否则跳转回去再次尝试读取
-  add   esp,  2                 ; 平衡栈
-  pop   bp
+  add   sp,   10h     ; 平衡栈 sp+=16B
   ret
 
 ;=======	get FAT Entry 根据FAT表项索引出下一个簇号
