@@ -20,11 +20,15 @@ $(patsubst %, _dir2_%, $(SUBDIRS)) :
 update_image:
 	dd if=./bootloader/boot.bin of=$(BOOTIMG) bs=512 count=1 conv=notrunc
 	sudo mount -o loop -t vfat $(BOOTIMG) /mnt
-	cp ./bootloader/loader.bin /mnt
-	cp ./kernel/kernel.bin /mnt
+	sudo cp -f ./bootloader/loader.bin /mnt
+	sudo cp -f ./kernel/kernel.bin /mnt
 	sync
-	umount /mnt
+	sudo umount /mnt
 
 .PHONY:qemu
 qemu:
 	qemu-system-x86_64 -boot a -fda $(BOOTIMG) -m 2048
+
+.PHONY:boch
+boch:
+	bochs -f .bochsrc
