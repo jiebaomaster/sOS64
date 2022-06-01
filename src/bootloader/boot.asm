@@ -35,7 +35,7 @@
 ;|----------------------|
 
   
-  org 0x7c00
+  org 0x7c00 ; 下面的代码编译生成的指令从 0x7c00 开始
 
 BaseOfStack     equ   0x7c00
 BaseOfLoader    equ   0x1000 ; loader 代码所在地址为 0x1000 << 4 + 0x00 = 0x10000

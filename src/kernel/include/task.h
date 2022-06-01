@@ -218,7 +218,7 @@ static inline struct task_struct * get_current() {
                          "popq %%rbp \n\t"                                     \
                          : "=m"(prev->thread->rsp), "=m"(prev->thread->rip)    \
                          : "m"(next->thread->rsp), "m"(next->thread->rip),     \
-                           "D"(prev), "S"(next) /* prev和next保存在rdi和rsi中 */ \
+                           "D"(prev), "S"(next) /* prev和next保存在rdi和rsi中，传参给__switch_to */ \
                          : "memory");                                          \
   } while(0)
 
