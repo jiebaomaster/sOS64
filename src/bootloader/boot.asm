@@ -98,11 +98,29 @@ Lable_Search_In_Root_Dir_Begin:           ; 搜索所有根目录占用的所有
   cld                           ; 设置 DF=0，下面字符串比较时地址递增
   mov   dx,   10h               ; dx=每个扇区可容纳的目录项个数 512 / 32 = 16 = 10h
 
+  push  ax
+  push  bx
+  mov   ah,   0eh
+  mov   al,   's'
+  mov   bx,   0fh
+  int   10h         ; 每读出一个扇区，输出一个 “s”
+  pop   bx
+  pop   ax
+
 Label_Search_For_LoaderBin:     ; 搜索当前扇区下的所有目录项
   cmp   dx,   0                 ; dx=0 表示当前扇区下的所有目录项都搜索完成
   jz    Label_Goto_Next_Sector_In_Root_Dir ; 若当前扇区没找到，跳转到下一个扇区
   dec   dx                      ; dx--
   mov   cx,   11                ; 目标文件名长度，包括文件名和扩展名，不包含分隔符 “.”
+
+  push  ax
+  push  bx
+  mov   ah,   0eh
+  mov   al,   '*'
+  mov   bx,   0fh
+  int   10h         ; 每读出一个目录项，输出一个 “*”
+  pop   bx
+  pop   ax
 
 Label_Cmp_FileName:             ; 比较当前目录项
   cmp   cx,   0                 ; cx=0，全部字符都对比完成，即找到了 loader.bin 的目录项
@@ -191,7 +209,7 @@ Label_Go_On_Loading_File:
   add   ax,   dx
   ;add   ax,   SectorBalance
   add   ax,   SectorNumOfRootDirStart
-  add   bx,   0x1000
+  add   bx,   2000h ; 一个簇 8192 字节
   jmp   Label_Go_On_Loading_File  ; 继续加载下一个簇
 
 Label_File_Loaded:

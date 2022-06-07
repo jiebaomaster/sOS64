@@ -193,7 +193,7 @@ Label_Go_On_Loading_File:
   push  ds
   push  esi
   ; 设置下面循环拷贝数据用到的寄存器
-  mov   cx,   1000h ; 循环重复的次数 1000h=4096，即拷贝一个簇=8个扇区
+  mov   cx,   2000h ; 循环重复的次数 2000h=8192，即拷贝一个簇=16个扇区
   mov   edi,  dword	[OffsetOfKernelFileCount]
   mov   ax,   BaseOfTmpKernelAddr
   mov   ds,   ax
