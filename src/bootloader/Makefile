@@ -1,15 +1,11 @@
-#!Makefile
-ASM = nasm
+BOOTLOADERS := $(shell ls -d */)
 
-S_SOURCES = $(shell find . -name "*.asm")
-S_OBJECTS = $(patsubst %.asm, %.bin, $(S_SOURCES))
+all: $(patsubst %, _dir_%, $(BOOTLOADERS))
 
-all: $(S_OBJECTS)
+$(patsubst %, _dir_%, $(BOOTLOADERS)) : 
+	$(MAKE) -C $(patsubst _dir_%, %, $@)
 
-%.bin: %.asm
-	@echo 编译汇编文件 $< ...
-	$(ASM) $(ASM_FLAGS) -o $@ $<
+clean: $(patsubst %, _dir2_%,$(BOOTLOADERS))
 
-.PHONY:clean
-clean:
-	rm -rf $(S_OBJECTS)
+$(patsubst %, _dir2_%, $(BOOTLOADERS)) :
+	$(MAKE) -C $(patsubst _dir2_%, %, $@) clean
