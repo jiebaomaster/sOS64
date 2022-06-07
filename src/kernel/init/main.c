@@ -5,6 +5,7 @@
 #include "trap.h"
 #include "interrupt.h"
 #include "task.h"
+#include "cpu.h"
 
 // 链接脚本中定义的记录段地址的变量
 extern char _text;
@@ -38,6 +39,7 @@ void Start_Kernel(void) {
             0xffff800000007c00);
   // 初始化异常处理
   sys_vector_init();
+  init_cpu();
 
   memory_management_struct.start_code = (unsigned long)&_text;
   memory_management_struct.end_code = (unsigned long)&_etext;
