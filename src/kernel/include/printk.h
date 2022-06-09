@@ -79,5 +79,8 @@ int color_printk(unsigned int FRcolor, unsigned int BKcolor, const char *fmt,
 
 // 黑底白字输出
 #define printk(fmt, args...) color_printk(WHITE, BLACK, fmt, ##args)
+#define printk_info(fmt, args...) color_printk(ORANGE, BLACK, fmt, ##args)
+#define printk_warn(fmt, args...) color_printk(YELLOW, BLACK, fmt, ##args)
+#define printk_error(fmt, args...) color_printk(RED, BLACK, fmt, ##args)
 
 #endif

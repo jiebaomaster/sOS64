@@ -14,7 +14,7 @@ extern char _edata;
 extern char _end;
 
 void Start_Kernel(void) {
-  int *addr = (int *)0xffff800000a00000; // 图像帧缓存的起始地址
+  int *addr = (int *)0xffff800003000000; // 图像帧缓存的起始地址
   int i;
 
   // 初始化屏幕信息
@@ -27,7 +27,7 @@ void Start_Kernel(void) {
   Pos.XCharSize = 8;
   Pos.YCharSize = 16;
 
-  Pos.FB_addr = (int *)0xffff800000a00000;
+  Pos.FB_addr = (int *)0xffff800003000000;
   Pos.FB_length = (Pos.XResolution * Pos.YResolution * 4);
 
   // 初始化 tss
@@ -48,11 +48,17 @@ void Start_Kernel(void) {
 
   color_printk(RED, BLACK, "memory init \n");
   init_memory();
-	color_printk(RED, BLACK, "interrupt init \n");
+	
+  color_printk(RED, BLACK, "interrupt init \n");
   init_interrupt();
-  color_printk(RED, BLACK, "task_init \n");
-  task_init();
   
+  color_printk(RED, BLACK, "slab init \n");
+  kmalloc_slab_init();
+
+
+  // color_printk(RED, BLACK, "task_init \n");
+  // task_init();
+
   while (1)
     ;
 }

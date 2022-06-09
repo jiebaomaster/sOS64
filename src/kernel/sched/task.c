@@ -90,7 +90,7 @@ unsigned long do_fork(struct pt_regs *regs, unsigned long clone_flags,
 
   printk("alloc_pages,bitmap:%#018lx\n", *memory_management_struct.bits_map);
   // TODO 目前还没有实现堆内存分配，直接分配一页内存给新进程
-  p = alloc_pages(ZONE_NORMAL, 1, PG_PTable_Maped | PG_Active | PG_Kernel);
+  p = alloc_pages(ZONE_NORMAL, 1, PG_PTable_Maped | PG_Kernel);
   printk("alloc_pages,bitmap:%#018lx\n", *memory_management_struct.bits_map);
 
   /**

@@ -3,6 +3,7 @@
 
 #include "lib.h"
 #include "printk.h"
+#include "list.h"
 
 // 每个页表的页表项数目，每个页表4KB，每个页表项8B
 #define PTRS_PER_PAGE 512
@@ -31,12 +32,21 @@
 #define PAGE_4K_ALIGN(addr)                                                    \
   (((unsigned long)(addr) + PAGE_4K_SIZE - 1) & PAGE_4K_MASK)
 
-// 只有物理地址的前 10MB 被映射到线性地址0xffff800000000000处，也就只有这 10MB
+// 内核代码使用固定地址映射
+// 物理地址的前 48MB 被映射到线性地址 0xffff800000000000 处，也就只有这 48MB
 // 的内存空间可以使用下面的宏 内核层，虚拟地址 => 物理地址
 #define Virt_To_Phy(addr) ((unsigned long)(addr)-PAGE_OFFSET)
 // 内核层，物理地址 => 虚拟地址
 #define Phy_To_Virt(addr)                                                      \
   ((unsigned long *)((unsigned long)(addr) + PAGE_OFFSET))
+
+// 返回管理虚拟地址 kaddr 的物理地址空间的 struct Page 的虚拟地址
+#define Virt_To_2M_Page(kaddr)                                                 \
+  (memory_management_struct.pages_struct +                                     \
+   (Virt_To_Phy(kaddr) >> PAGE_2M_SHIFT))
+#define Phy_To_2M_Page(kaddr)                                                  \
+  (memory_management_struct.pages_struct +                                     \
+   ((unsigned long)(kaddr) >> PAGE_2M_SHIFT))
 
 typedef struct {
   unsigned long pml4t;
@@ -97,26 +107,16 @@ struct Global_Memory_Descriptor {
 };
 
 /* page.attribute */
-// 经过页表映射的页
+// 1=经过页表映射的页
 #define PG_PTable_Maped (1 << 0)
-// 内核初始化程序
+// 1=内核初始化程序
 #define PG_Kernel_Init (1 << 1)
-// 引用
-#define PG_Referenced (1 << 2)
-//
-#define PG_Dirty (1 << 3)
-// 使用中的页
-#define PG_Active (1 << 4)
-//
-#define PG_Up_To_Date (1 << 5)
-//
-#define PG_Device (1 << 6)
+// 1=设备寄存器/内存 0=物理内存空间
+#define PG_Device (1 << 2)
 // 内核层的页
-#define PG_Kernel (1 << 7)
-// 共享
-#define PG_K_Share_To_U (1 << 8)
-//
-#define PG_Slab (1 << 9)
+#define PG_Kernel (1 << 3)
+// 1=共享页
+#define PG_Shared (1 << 4)
 
 struct Page {                    // 物理内存页
   struct Zone *zone_struct;      // 指向该页所属的 zone
@@ -127,7 +127,7 @@ struct Page {                    // 物理内存页
 };
 
 /**
- * @brief 表示一个可用的物理内存区域（可用物理内存段）
+ * @brief 表示一个可用的物理内存区域（可用物理内存段，取自 BIOS 中断 E820）
  */
 struct Zone {
   struct Page *pages_group; // 本区域包含的物理页的 struct page 数组指针
@@ -150,8 +150,8 @@ struct Zone {
 
 // 每种类型的 zone 在全局 zone 数组中的索引
 int ZONE_DMA_INDEX = 0;
-int ZONE_NORMAL_INDEX = 0;  // low 1GB RAM ,was mapped in pagetable
-int ZONE_UNMAPED_INDEX = 0; // above 1GB RAM,unmapped in pagetable
+int ZONE_NORMAL_INDEX = 0;  // low 4GB RAM ,was mapped in pagetable
+int ZONE_UNMAPED_INDEX = 0; // above 4GB RAM,unmapped in pagetable
 
 ////alloc_pages zone_select
 //
@@ -162,15 +162,6 @@ int ZONE_UNMAPED_INDEX = 0; // above 1GB RAM,unmapped in pagetable
 #define ZONE_UNMAPED	(1 << 2)
 
 extern struct Global_Memory_Descriptor memory_management_struct;
-
-/**
- * @brief 初始化目标物理页的 page，并更新目标物理页所在 zone 的统计信息
- * 
- * @param page 目标物理页
- * @param flags page.attribute
- * @return unsigned long 
- */
-unsigned long page_init(struct Page * page,unsigned long flags);
 
 // 初始化物理内存
 void init_memory();
@@ -195,13 +186,172 @@ static inline unsigned long *Get_gdt() {
 }
 
 /**
+ * @brief 初始化目标物理页的 page
+ * 
+ * @param page 目标物理页
+ * @param flags page.attribute
+ * @return 0=失败，1=成功
+ */
+unsigned long page_init(struct Page * page,unsigned long flags);
+
+/**
+ * @brief 
+ * 
+ * @param page 
+ * @return 0=失败，1=成功
+ */
+unsigned long page_clean(struct Page* page);
+
+/**
  * @brief 从 zone_select 指定的物理内存区域中分配连续的 number 个物理页
  * 
  * @param zone_select 指定从哪个物理内存区域分配
  * @param number 需求的页数
  * @param page_flags 分配物理页后设置的页属性
- * @return struct Page* 返回第一页的 page 结构体地址
+ * @return struct Page* 返回第一个 page 结构体的虚拟地址
  */
 struct Page* alloc_pages(int zone_select, int number, unsigned long page_flags);
+
+/**
+ * @brief 释放从 page 开始的 number 个物理页
+ */
+void free_pages(struct Page *page, int number);
+
+/**
+ * 管理 Slab 内存池中的一个物理页
+ */
+struct Slab {
+  struct List list; // 属于内存池的所有
+
+  struct Page *page; // 所管理物理页的 page
+  void *Vaddress;    // 所管理物理页的虚拟地址
+
+  unsigned long using_count; // 已用个数
+  unsigned long free_count;  // 可用个数
+
+  unsigned long color_length; // 位图本身的大小（字节）
+  unsigned long color_count;  // 位图管理的对象个数，即 Slab 容量
+  unsigned long *color_map;   // 位图地址
+};
+
+/**
+ * 对象大小为 size 的内存池
+ * 包括多个大小为一个物理页的 struct Slab
+ */
+struct Slab_cache {
+  unsigned long size;          // 内存池的对象大小
+  unsigned long total_using;   // 可用个数
+  unsigned long total_free;    // 已用个数
+  struct Slab *cache_pool;     // 内存池链表
+  struct Slab *cache_dma_pool; // DMA内存池
+
+  // 对象的构造函数和析构函数
+  void *(*constructor)(void *Vaddress, unsigned long arg);
+  void *(*destructor)(void *Vaddress, unsigned long arg);
+};
+
+// 通用内存管理 kmalloc/kfree 使用的内存池
+struct Slab_cache kmalloc_cache_size[16] = {
+    {32, 0, 0, NULL, NULL, NULL, NULL},
+    {64, 0, 0, NULL, NULL, NULL, NULL},
+    {128, 0, 0, NULL, NULL, NULL, NULL},
+    {256, 0, 0, NULL, NULL, NULL, NULL},
+    {512, 0, 0, NULL, NULL, NULL, NULL},
+    {1024, 0, 0, NULL, NULL, NULL, NULL}, // 1KB
+    {2048, 0, 0, NULL, NULL, NULL, NULL},
+    {4096, 0, 0, NULL, NULL, NULL, NULL}, // 4KB
+    {8192, 0, 0, NULL, NULL, NULL, NULL},
+    {16384, 0, 0, NULL, NULL, NULL, NULL},
+    {32768, 0, 0, NULL, NULL, NULL, NULL},
+    {65536, 0, 0, NULL, NULL, NULL, NULL},  // 64KB
+    {131072, 0, 0, NULL, NULL, NULL, NULL}, // 128KB
+    {262144, 0, 0, NULL, NULL, NULL, NULL},
+    {524288, 0, 0, NULL, NULL, NULL, NULL},
+    {1048576, 0, 0, NULL, NULL, NULL, NULL}, // 1MB
+};
+
+// 向上取整到 long 的整数倍
+#define SIZEOF_LONG_ALIGN(size) ((size + sizeof(long)-1) & ~(sizeof(long)-1))
+// 向上取整到 int 的整数倍
+#define SIZEOF_INT_ALIGN(size) ((size + sizeof(int)-1) & ~(sizeof(int)-1))
+
+/**
+ * @brief 创建一个管理对象大小为 size 的内存池
+ * 
+ * @param size 管理对象的大小
+ * @param constructor 对象的构造函数
+ * @param destructor 对象的析构函数
+ * @return struct Slab_cache* 内存池地址
+ */
+struct Slab_cache *
+slab_create(unsigned long size,
+            void *(*constructor)(void *Vaddress, unsigned long arg),
+            void *(*destructor)(void *Vaddress, unsigned long arg));
+
+/**
+ * @brief 销毁 slab_cache 内存池
+ * @return 0=失败，1=成功
+ */
+unsigned long slab_destory(struct Slab_cache* slab_cache);
+
+/**
+ * @brief 向 slab_cache 内存池申请一个对象
+ * 
+ * @param arg 对象构造函数的参数
+ * @return void* 初始化后的对象
+ */
+void* slab_malloc(struct Slab_cache* slab_cache, unsigned long arg);
+
+/**
+ * @brief 将 address 内存块归还到 slab_cache 内存池，并调用对象的析构函数
+ * 
+ * @return 0=失败，1=成功
+ */
+unsigned long slab_free(struct Slab_cache *slab_cache, void *address,
+                        unsigned long arg);
+
+/**
+ * @brief 初始化 kmalloc 使用的内存池 kmalloc_cache_size
+ * 
+ * @return 0=失败，1=成功
+ */
+unsigned long kmalloc_slab_init();
+
+/**
+ * @brief 通用内存申请
+ *
+ * @param size 申请的内存大小
+ * @param gfp_flags 控制内存分配
+ * @return void* 申请到内存的起始虚拟地址
+ */
+void *kmalloc(unsigned long size, unsigned long gfp_flags);
+
+/**
+ * @brief 释放内存
+ *
+ * @param address 待释放内存的起始地址
+ * @return 0=失败，1=成功
+ */
+unsigned long kfree(void *address);
+
+/**
+ * @brief 使用 kmalloc 申请一块新的 Slab 并初始化
+ * 
+ * @param size Slab 管理的对象大小
+ */
+struct Slab *get_new_Slab(unsigned long size);
+
+/**
+ * @brief 在 slab_cache 中的 slab 中分配一个对象
+ * 
+ * @param arg 对象构造函数的参数
+ * @return void* 初始化后的对象
+ */
+void *__do_slab_malloc(struct Slab_cache *slab_cache, struct Slab *slab, unsigned long arg);
+
+/**
+ * @brief 释放一个 Slab，使用 kfree 释放 Slab 和 位图
+ */
+void __do_Slab_destory(struct Slab *slab);
 
 #endif

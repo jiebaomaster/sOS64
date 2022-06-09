@@ -4,50 +4,65 @@
 struct Global_Memory_Descriptor memory_management_struct = {{0}, 0};
 
 /**
- * @brief 初始化目标物理页的 page，并更新目标物理页所在 zone 的统计信息
+ * @brief 初始化目标物理页的 page
  *
  * @param page 目标物理页
  * @param flags page.attribute
- * @return unsigned long
+ * @return 0=失败，1=成功
  */
 unsigned long page_init(struct Page *page, unsigned long flags) {
-  if (!page->attribute) { // 如果这个页面还没被初始化过
-    // 页映射位图中相应的位置位，表示这一页已被占用
-    *(memory_management_struct.bits_map +
-      ((page->PHY_address >> PAGE_2M_SHIFT) >> 6)) |=
-        1UL << (page->PHY_address >> PAGE_2M_SHIFT) % 64;
-    page->attribute = flags;
-    page->reference_count++;
-    page->zone_struct->page_using_count++;
-    page->zone_struct->page_free_count--;
-    page->zone_struct->total_pages_link++;
-  } else if ((page->attribute & PG_Referenced) ||
-             (page->attribute & PG_K_Share_To_U) || (flags & PG_Referenced) ||
-             (flags & PG_K_Share_To_U)) { // 设置一个已初始化的页面为共享的
-    page->attribute |= flags;
+  page->attribute |= flags;
+
+  if (!page->reference_count || (page->attribute & PG_Shared)) {
     page->reference_count++;
     page->zone_struct->total_pages_link++;
-  } else {
-    *(memory_management_struct.bits_map +
-      ((page->PHY_address >> PAGE_2M_SHIFT) >> 6)) |=
-        1UL << (page->PHY_address >> PAGE_2M_SHIFT) % 64;
-    page->attribute |= flags;
   }
 
-  return 0;
+  return 1;
+}
+
+
+unsigned long page_clean(struct Page *page) {
+  page->reference_count--;
+  page->zone_struct->total_pages_link--;
+
+  // 引用归零，重置页属性
+  if (!page->reference_count) {
+    page->attribute &= PG_PTable_Maped;
+  }
+
+  return 1;
+}
+
+unsigned long get_page_attribute(struct Page *page) {
+  if (page == NULL) {
+    printk_error("get_page_attribute => ERROR: page == NULL\n");
+    return 0;
+  } else
+    return page->attribute;
+}
+
+unsigned long set_page_attribute(struct Page *page, unsigned long flags) {
+  if (page == NULL) {
+    printk_error("set_page_attribute => ERROR: page == NULL\n");
+    return 0;
+  } else {
+    page->attribute = flags;
+    return 1;
+  }
 }
 
 void init_memory() {
   int i, j;
   unsigned long TotalMem = 0; // 可用物理内存长度，单位字节
   unsigned long phymmend;     // 物理内存空间的结束地址
-  struct E820 *p = NULL;
+  // 在 loader 中由 BIOS 中断获取的物理内存空间信息被存储在线性地址
+  // 0xffff800000007e00 处
+  struct E820 *p = (struct E820 *)0xffff800000007e00;
 
   printk("Display Physics Address MAP,Type(1:RAM,2:ROM or Reserved,3:ACPI "
          "Reclaim Memory,4:ACPI NVS Memory,Others:Undefine)\n");
-  // 在 loader 中由 BIOS 中断获取的物理内存空间信息被存储在线性地址
-  // 0xffff800000007e00 处
-  p = (struct E820 *)0xffff800000007e00;
+  
   // 解析物理内存空间信息，保存到全局内存管理结构体中
   for (i = 0; i < 32; i++) {
     printk("Address:%#018lx\tLength:%#018lx\tType:%#010x\n", p->address,
@@ -217,8 +232,8 @@ void init_memory() {
   memory_management_struct.pages_struct->zone_struct =
       memory_management_struct.zones_struct;
   memory_management_struct.pages_struct->PHY_address = 0UL;
-  memory_management_struct.pages_struct->attribute = 0;
-  memory_management_struct.pages_struct->reference_count = 0;
+  set_page_attribute(memory_management_struct.pages_struct, PG_PTable_Maped | PG_Kernel_Init | PG_Kernel);
+  memory_management_struct.pages_struct->reference_count = 1;
   memory_management_struct.pages_struct->age = 0;
 
   // 自此，所有的 zone 都已经被初始化了，zone 的数量已经确定
@@ -241,10 +256,10 @@ void init_memory() {
          memory_management_struct.zones_size,
          memory_management_struct.zones_length);
 
-  // TODO 全局zone索引需要在后期修正
+  // 初始化全局 zone 索引
   ZONE_DMA_INDEX = 0;
   ZONE_NORMAL_INDEX = 0;
-  // TODO
+  ZONE_UNMAPED_INDEX = 0;
   // 遍历输出每一个zone的信息，并设置 ZONE_UNMAPED_INDEX
   for (i = 0; i < memory_management_struct.zones_size; i++) {
     struct Zone *z = memory_management_struct.zones_struct + i;
@@ -253,10 +268,12 @@ void init_memory() {
            z->zone_start_address, z->zone_end_address, z->zone_length,
            z->pages_group, z->pages_length);
 
-    // zone 的起始地址为 1G，该 zone 的物理内存页没有被页表映射
-    if (z->zone_start_address == 0x100000000)
+    // 起始地址大于 4GB 的第一个 zone 是第一个未被页表映射的
+    if (z->zone_start_address >= 0x100000000 && !ZONE_UNMAPED_INDEX)
       ZONE_UNMAPED_INDEX = i;
   }
+  printk("ZONE_DMA_INDEX:%d\t ZONE_NORMAL_INDEX:%d\t ZONE_UNMAPED_INDEX:%d\n",
+         ZONE_DMA_INDEX, ZONE_NORMAL_INDEX, ZONE_UNMAPED_INDEX);
 
   // 记录所有内存管理结构结束地址，从这之后的物理内存可以任意使用
   // 计算时 “+ sizeof(long) * 32” 预留了一段内存空间，防止越界访问
@@ -274,10 +291,15 @@ void init_memory() {
 
   // 内核页面和内存管理页面 加起来的数量
   i = Virt_To_Phy(memory_management_struct.end_of_struct) >> PAGE_2M_SHIFT;
-  // 初始化内核页面和内存管理页面的页面属性
-  for (j = 0; j <= i; j++) {
-    page_init(memory_management_struct.pages_struct + j,
-              PG_PTable_Maped | PG_Kernel_Init | PG_Active | PG_Kernel);
+  // 初始化内存管理页面的页面属性
+  for (j = 1; j <= i; j++) {
+    struct Page *tmp_page = memory_management_struct.pages_struct + j;
+    page_init(tmp_page, PG_PTable_Maped | PG_Kernel_Init | PG_Kernel);
+    *(memory_management_struct.bits_map +
+      ((tmp_page->PHY_address >> PAGE_2M_SHIFT) >> 6)) |=
+        1UL << (tmp_page->PHY_address >> PAGE_2M_SHIFT) % 64;
+    tmp_page->zone_struct->page_using_count++;
+    tmp_page->zone_struct->page_free_count--;
   }
 
   // 输出1，2，3级页表地址
@@ -286,6 +308,12 @@ void init_memory() {
   printk("*Global_CR3\t:%#018lx\n", *Phy_To_Virt(Global_CR3) & (~0xff));
   printk("**Global_CR3\t:%#018lx\n",
          *Phy_To_Virt(*Phy_To_Virt(Global_CR3) & (~0xff)) & (~0xff));
+
+  printk_info("1.memory_management_struct.bits_map:%#018lx\tzone_struct->page_"
+              "using_count:%d\tzone_struct->page_free_count:%d\n",
+              *memory_management_struct.bits_map,
+              memory_management_struct.zones_struct->page_using_count,
+              memory_management_struct.zones_struct->page_free_count);
 
   // 清除一致性页表映射，即页表中头几个物理地址 = 虚拟地址的页表项
   // 低端地址后面会映射给用户空间，内存初始化完毕后也不需要再保留一致性页表映射了
@@ -299,7 +327,7 @@ void init_memory() {
  * @brief 从 zone_select 指定的物理内存区域中分配连续的 number 个物理页
  *
  * @param zone_select 指定可用的物理内存区域
- * @param number 需求的页数，最多一次分配 64 个物理页
+ * @param number 需求的页数，最多一次分配 63 个物理页
  * @param page_flags 分配物理页后设置的页属性
  * @return struct Page* 返回第一页的 page 结构体地址
  */
@@ -307,29 +335,38 @@ struct Page *alloc_pages(int zone_select, int number,
                          unsigned long page_flags) {
   int i;
   unsigned long page = 0;
+  unsigned long attribute = 0;
 
   int zone_start = 0;
   int zone_end = 0;
+
+  if (number >= 64 || number <= 0) {
+    printk_error("alloc_pages => ERROR: number is invalid\n");
+    return NULL;
+  }
 
   // 设置备选的物理内存区域 zone_start ~ zone_end
   switch (zone_select) {
   case ZONE_DMA:
     zone_start = 0;
     zone_end = ZONE_DMA_INDEX;
+    attribute = PG_PTable_Maped;
     break;
 
   case ZONE_NORMAL:
     zone_start = ZONE_DMA_INDEX;
     zone_end = ZONE_NORMAL_INDEX;
+    attribute = PG_PTable_Maped;
     break;
 
   case ZONE_UNMAPED:
     zone_start = ZONE_UNMAPED_INDEX;
     zone_end = memory_management_struct.zones_size - 1;
+    attribute = 0;
     break;
 
   default:
-    color_printk(RED, BLACK, "alloc_pages error zone_select index\n");
+    printk_error("alloc_pages => ERROR: zone_select index is invalid\n");
     return NULL;
     break;
   }
@@ -338,7 +375,7 @@ struct Page *alloc_pages(int zone_select, int number,
   for (i = zone_start; i <= zone_end; i++) {
     struct Zone *z;
     unsigned long j;
-    unsigned long start, end, length;
+    unsigned long start, end;
     unsigned long tmp;
 
     // 若当前 zone 中剩余的可用物理页数不能满足需求，跳转到下一个 zone
@@ -348,7 +385,6 @@ struct Page *alloc_pages(int zone_select, int number,
     z = memory_management_struct.zones_struct + i;
     start = z->zone_start_address >> PAGE_2M_SHIFT;
     end = z->zone_end_address >> PAGE_2M_SHIFT;
-    length = z->zone_length >> PAGE_2M_SHIFT;
 
     // start % 64 = 该 zone 的第一个 bit 在 bitsmap 中以 64 为步进单位的偏移
     // tmp 为下面外循环第一次遍历的位数，可使后续的循环都对齐到 64，方便以64步进
@@ -357,9 +393,11 @@ struct Page *alloc_pages(int zone_select, int number,
     for (j = start; j <= end; j += j % 64 ? tmp : 64) {
       unsigned long *p = memory_management_struct.bits_map + (j >> 6); // 当前遍历到第几个64
       unsigned long shift = j % 64;
+
+      unsigned long num = (1UL << number) - 1;
       unsigned long k;
       // 遍历当前步进长度中的每一个bit，直到从某个 bit 开始可以满足需求
-      for (k = shift; k < 64 - shift; k++) {
+      for (k = shift; k < 64; k++) {
         /**
          * 1. 相邻 64 位步进单元的拼接
          * bitsmap 中的每一个 64 从低位开始占用
@@ -374,22 +412,254 @@ struct Page *alloc_pages(int zone_select, int number,
          * 
          * 3. (1 & 2) 若等于0，表示低 number 位全部为空，可以占用 
          */
-        if (!(((*p >> k) | (*(p + 1) << (64 - k))) &
-              (number == 64 ? 0xffffffffffffffffUL : ((1UL << number) - 1)))) {
+        if (!((k ? ((*p >> k) | (*(p + 1) << (64 - k))) : *p) & (num))) {
           unsigned long l;
-          page = j + k - 1;
-          for (l = 0; l < number; l++) // 初始化每一个空闲的 page
-            page_init(memory_management_struct.pages_struct + page + l,
-                      page_flags);
+          page = j + k - shift;
+          for (l = 0; l < number; l++) { // 初始化每一个空闲的 page
+            struct Page *curPage =
+                memory_management_struct.pages_struct + page + l;
+            *(memory_management_struct.bits_map +
+              ((curPage->PHY_address >> PAGE_2M_SHIFT) >> 6)) |=
+                1UL << (curPage->PHY_address >> PAGE_2M_SHIFT) % 64;
+            z->page_free_count--;
+            z->page_using_count++;
+            curPage->attribute = attribute;
+          }
 
           goto find_free_pages;
         }
       }
     }
 
+    printk_warn("alloc_pages => no page can alloc\n");
     return NULL;
 
   find_free_pages:
     return (struct Page *)(memory_management_struct.pages_struct + page);
   }
+}
+
+/**
+ * @brief 释放从 page 开始的 number 个物理页
+ */
+void free_pages(struct Page *page, int number) {
+  if (!page) {
+    printk_error("free_pages => ERROR: page is invalid\n");
+    return;
+  }
+
+  if (number >= 64 || number <= 0) {
+    printk_error("free_pages => ERROR: number is invalid\n");
+    return;
+  }
+
+  for (int i = 0; i < number; i++, page++) {
+    *(memory_management_struct.bits_map +
+      ((page->PHY_address >> PAGE_2M_SHIFT) >> 6)) &=
+        ~(1UL << (page->PHY_address >> PAGE_2M_SHIFT) % 64);
+    page->zone_struct->page_free_count++;
+    page->zone_struct->page_using_count--;
+    page->attribute = 0;
+  }
+}
+
+/**
+ * @brief 为 kmalloc 使用的内存池申请新的 Slab
+ * 
+ * @param size 
+ * @return struct Slab* 
+ */
+struct Slab *kmalloc_create(unsigned long size) {
+  struct Slab *pSlab = NULL;
+  struct Page *page = NULL;
+  unsigned long *page_address = NULL;
+  long slabAndMapSize = 0;
+
+  switch (size) {
+  case 32:
+  case 64:
+  case 128:
+  case 256:
+  case 512:
+    /**
+     * 分配空间存储 32～512B 的小尺寸对象，这些对象的内存尺寸较小而位图占用空间大，
+     * 将 Slab、位图、数据存储区都放在一个页面中，避免额外分配空间（嵌套调用 kmalloc)
+     * 保证只要有可用物理页，即可分配出内存对象
+     * 
+     * 页面：低地址 -> 高地址
+     * [  对象数据存储区   |  struct Slab | bitmap ]
+     */
+    page = alloc_pages(ZONE_NORMAL, 1, 0);
+    if (!page) {
+      printk_error("kmalloc_create => alloc_pages failed!\n");
+      return NULL;
+    }
+    page_init(page, PG_Kernel);
+
+    page_address = Phy_To_Virt(page->PHY_address);
+    slabAndMapSize = sizeof(struct Slab) + PAGE_2M_SIZE / size / 8;
+
+    pSlab = (struct Slab *)((unsigned char *)page_address + PAGE_2M_SIZE -
+                            slabAndMapSize);
+    pSlab->color_map =
+        (unsigned long *)((unsigned char *)pSlab + sizeof(struct Slab));
+    pSlab->free_count =
+        (PAGE_2M_SIZE - (PAGE_2M_SIZE / size / 8) - sizeof(struct Slab)) / size;
+    pSlab->color_length =
+        ((pSlab->color_count + sizeof(unsigned long) * 8 - 1) >> 6) << 3;
+    pSlab->using_count = 0;
+    pSlab->color_count = pSlab->free_count;
+    memset(pSlab->color_map, 0xff, pSlab->color_length);
+    for (int i = 0; i < pSlab->color_count; i++)
+      *(pSlab->color_map + (i >> 6)) ^= 1UL << i % 64;
+
+    pSlab->Vaddress = page_address;
+    pSlab->page = page;
+    list_init(&pSlab->list);
+
+    break;
+  case 1024: // 1KB
+  case 2048:
+  case 4096:
+  case 8192:
+  case 16384:
+  case 32768:
+  case 131072: // 128KB
+  case 262144:
+  case 524288:
+  case 1048576: // 1MB
+    // 大型对象使用 kmalloc 递归申请 Slab 和 位图 的内存
+    pSlab = get_new_Slab(size);
+    if (!pSlab) {
+      printk_error("kmalloc_create => get_new_Slab failed!\n");
+      return NULL;
+    }
+    break;
+  default:
+    printk_error("kmalloc_create => ERROR: wrong size:%08d\n", size);
+    return NULL;
+    break;
+  }
+
+  return pSlab;
+}
+
+/**
+ * @brief 基于内存池的通用内存申请
+ *
+ * @param size 申请的内存大小
+ * @param gfp_flags 控制内存分配
+ * @return void* 申请到内存的起始虚拟地址
+ */
+void *kmalloc(unsigned long size, unsigned long gfp_flags) {
+  // 申请内存大小不能超过 1MB
+  if (size > 1048576) {
+    printk_error("kmalloc => ERROR: kmalloc size too big:%08d\n", size);
+    return NULL;
+  }
+
+  // 1. size 向上取整，找到可以适合的内存池
+  struct Slab *pSlab = NULL;
+  int i;
+  for (i = 0; i < 16; i++) {
+    if (kmalloc_cache_size[i].size >= size) {
+      pSlab = kmalloc_cache_size[i].cache_pool;
+      break;
+    }
+  }
+  
+  // 2. 在内存池中寻找合适的 Slab
+  if (kmalloc_cache_size[i].total_free != 0) {
+    // 内存池中还有空闲，遍历找到还有空闲的 Slab
+    do {
+      if (pSlab->free_count == 0) {
+        pSlab = container_of(list_next(&pSlab->list), struct Slab, list);
+        continue;
+      }
+      break;
+    } while (pSlab != kmalloc_cache_size[i].cache_pool);
+  } else {
+    // 内存池中没有空闲了，申请新的 Slab
+    pSlab = kmalloc_create(kmalloc_cache_size[i].size);
+    if (pSlab == NULL) {
+      printk_warn("kmalloc => kmalloc_create get Null!\n");
+      return NULL;
+    }
+
+    kmalloc_cache_size[i].total_free += pSlab->color_count;
+    printk("kmalloc => kmalloc_create size:%#010x\n",
+           kmalloc_cache_size[i].size);
+    // 链接进内存池的 Slab 链表
+    list_add_to_before(&kmalloc_cache_size[i].cache_pool->list, &pSlab->list);
+  }
+
+  // 3. 在 slab 中进行分配
+  void *obj = __do_slab_malloc(&kmalloc_cache_size[i], pSlab, NULL);
+  if (obj)
+    return obj;
+
+  printk_error("kmalloc => ERROR: no memory can alloc!\n");
+  return NULL;
+}
+
+/**
+ * @brief 释放内存
+ *
+ * @param address 待释放内存的起始地址
+ * @return 0=失败，1=成功
+ */
+unsigned long kfree(void *address) {
+  struct Slab * pSlab = NULL;
+  unsigned long page_base_addr = (unsigned long)address & PAGE_2M_MASK;
+  for(int i = 0; i < 16; i++) {
+    pSlab = kmalloc_cache_size[i].cache_pool;
+    do {
+      // 找到 page_base_addr 地址所在的 Slab
+      if ((unsigned long)pSlab->Vaddress != page_base_addr) {
+        pSlab = container_of(list_next(&pSlab->list), struct Slab, list);
+        continue;
+      }
+
+      // 1. 复位位图中对应位
+      int index = (address - pSlab->Vaddress) / kmalloc_cache_size[i].size;
+      *(pSlab->color_map + (index >> 6)) ^= 1UL << (index % 64);
+      
+      // 2. 维护计数器
+      pSlab->free_count++;
+      pSlab->using_count--;
+      kmalloc_cache_size[i].total_free++;
+      kmalloc_cache_size[i].total_using--;
+
+      // 3. 若 Slab 已空闲 且 内存池中剩余可分配内存充足，释放 Slab
+      // 条件二 空闲内存数量超过一个 Slab 的 1.5 倍，也确保了内存池中至少有 2 个 Slab
+      // 条件三 保证第一个 Slab 不被删除，因为第一个 Slab 是静态申请的
+      if ((pSlab->using_count == 0) &&
+          (kmalloc_cache_size[i].total_free >= pSlab->color_count * 3 / 2) &&
+          (pSlab != kmalloc_cache_size[i].cache_pool)) {
+        switch (kmalloc_cache_size[i].size) {
+        case 32:
+        case 64:
+        case 128:
+        case 256:
+        case 512:
+          // 小型对象的 Slab、位图、数据存储区都放在一个页面中，只需释放 page 即可
+          list_del(&pSlab->list);
+          kmalloc_cache_size[i].total_free -= pSlab->color_count;
+
+          page_clean(pSlab->page);
+          free_pages(pSlab->page, 1);
+          break;
+        default:
+          // 大型对象使用 kfree 递归释放
+          kmalloc_cache_size[i].total_free -= pSlab->color_count;
+          __do_Slab_destory(pSlab);
+          break;
+        }
+      }
+      return 1;
+    } while (pSlab != kmalloc_cache_size[i].cache_pool);
+  }
+  
+  printk_error("kfree => ERROR: cant't free memory:%#018lx!\n", address);
+  return 0;
 }
