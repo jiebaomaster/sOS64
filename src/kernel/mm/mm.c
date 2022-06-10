@@ -317,8 +317,8 @@ void init_memory() {
 
   // 清除一致性页表映射，即页表中头几个物理地址 = 虚拟地址的页表项
   // 低端地址后面会映射给用户空间，内存初始化完毕后也不需要再保留一致性页表映射了
-  // TODO 暂时保留映射用于1号进程的用户空间操作
-  // *Phy_To_Virt(Global_CR3) = 0UL;
+  for(i = 0; i < 10; i++) 
+    *(Phy_To_Virt(Global_CR3) + i)= 0UL;
   // 刷新tlb，使页表项修改生效
   flush_tlb();
 }
@@ -662,4 +662,61 @@ unsigned long kfree(void *address) {
   
   printk_error("kfree => ERROR: cant't free memory:%#018lx!\n", address);
   return 0;
+}
+
+/**
+ * 将所有物理页全部映射到线性地址空间内
+ */
+void pagetable_init() {
+  unsigned long * tmp = NULL;
+  Global_CR3 = Get_gdt();
+
+  // 打印当前系统中各级页表的起始地址（虚拟地址，物理地址）
+  tmp = (unsigned long *)(((unsigned long)Phy_To_Virt(
+                              (unsigned long)Global_CR3 & (~0xfffUL))) +
+                          8 * 256);
+  printk("1:%#018lx,%#018lx\t\t\n", (unsigned long)tmp, *tmp);
+  tmp = Phy_To_Virt(*tmp & (~0xfffUL));
+  printk("2:%#018lx,%#018lx\t\t\n", (unsigned long)tmp, *tmp);
+  tmp = Phy_To_Virt(*tmp & (~0xfffUL));
+  printk("3:%#018lx,%#018lx\t\t\n", (unsigned long)tmp, *tmp);
+
+  // 把 normal zone 中的所有物理页全部映射到线性地址空间内，
+  // 则内核层可以访问到全部物理页，即内核层不会发生缺页中断
+
+  // 遍历所有 zone
+  for(unsigned long i = 0; i < memory_management_struct.zones_size; i++) {
+    if(ZONE_UNMAPED_INDEX && i == ZONE_UNMAPED_INDEX) break;
+
+    struct Zone* z = memory_management_struct.zones_struct + i;
+    struct Page* p = z->pages_group;
+
+    // 遍历 zone 下的所有 page
+    for(unsigned long j = 0; j < z->pages_length; j++, p++) {
+      // tmp 指向 PML4T 中 page 对应的页表项
+      tmp = (unsigned long*)(((unsigned long)Phy_To_Virt((unsigned long)Global_CR3 & (~0xfffUL))) + (((unsigned long)Phy_To_Virt(p->PHY_address) >> PAGE_GDT_SHIFT) & 0x1ff) * 8);
+      if(*tmp == 0) { // 页表项为空，分配下级页表 PDPT，并设置 PML4T 中对应的页表项
+        unsigned long * newPDPT = kmalloc(PAGE_4K_SIZE, 0);
+        set_mpl4t(tmp, mk_mpl4t(Virt_To_Phy(newPDPT), PAGE_KERNEL_GDT));
+      }
+
+      // tmp 指向 PDPT 中 page 对应的页表项
+      tmp = (unsigned long *)((unsigned long)Phy_To_Virt(*tmp & (~ 0xfffUL)) + (((unsigned long)Phy_To_Virt(p->PHY_address) >> PAGE_1G_SHIFT) & 0x1ff) * 8);
+      if (*tmp == 0) {
+        unsigned long *newPDT = kmalloc(PAGE_4K_SIZE, 0);
+        set_pdpt(tmp, mk_pdpt(Virt_To_Phy(newPDT), PAGE_KERNEL_Dir));
+      }
+
+      // tmp 指向 PDT 中 page 对应的页表项
+      tmp = (unsigned long *)((unsigned long)Phy_To_Virt(*tmp & (~ 0xfffUL)) + (((unsigned long)Phy_To_Virt(p->PHY_address) >> PAGE_2M_SHIFT) & 0x1ff) * 8);
+      // 设置最下级的页表项
+      set_pdt(tmp, mk_pdt(p->PHY_address, PAGE_KERNEL_Page));
+
+      // debug 信息
+      if (j % 50 == 0)
+				printk_debug("@:%#018lx, %#018lx\t\n",(unsigned long)tmp, *tmp);
+    }
+  }
+  
+  flush_tlb();
 }

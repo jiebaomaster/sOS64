@@ -79,8 +79,16 @@ int color_printk(unsigned int FRcolor, unsigned int BKcolor, const char *fmt,
 
 // 黑底白字输出
 #define printk(fmt, args...) color_printk(WHITE, BLACK, fmt, ##args)
+#define printk_debug(fmt, args...) color_printk(BLUE, BLACK, fmt, ##args)
 #define printk_info(fmt, args...) color_printk(ORANGE, BLACK, fmt, ##args)
 #define printk_warn(fmt, args...) color_printk(YELLOW, BLACK, fmt, ##args)
 #define printk_error(fmt, args...) color_printk(RED, BLACK, fmt, ##args)
+
+/**
+ * 重新映射 VBE 帧缓冲区的线形地址
+ * 当前帧缓冲区占用了线性地址 0x3000000 开始的 16 MB，导致这个地址区间不可使用
+ * 0xe0000000 在物理地址空间的空洞内，可以用来映射帧缓冲区
+ */
+void frame_buffer_init();
 
 #endif

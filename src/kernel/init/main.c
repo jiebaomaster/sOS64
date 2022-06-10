@@ -48,13 +48,19 @@ void Start_Kernel(void) {
 
   color_printk(RED, BLACK, "memory init \n");
   init_memory();
-	
-  color_printk(RED, BLACK, "interrupt init \n");
-  init_interrupt();
-  
+
   color_printk(RED, BLACK, "slab init \n");
   kmalloc_slab_init();
 
+  color_printk(RED, BLACK, "frame buffer init \n");
+  frame_buffer_init();
+  color_printk(WHITE, BLACK, "frame_buffer_init() is OK \n");
+
+  color_printk(RED, BLACK, "pagetable init \n");
+  pagetable_init();
+
+  color_printk(RED, BLACK, "interrupt init \n");
+  init_interrupt();
 
   // color_printk(RED, BLACK, "task_init \n");
   // task_init();

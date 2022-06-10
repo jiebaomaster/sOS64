@@ -48,11 +48,70 @@
   (memory_management_struct.pages_struct +                                     \
    ((unsigned long)(kaddr) >> PAGE_2M_SHIFT))
 
+/**
+ * 页表中表示该页表项的属性
+ */
+//	bit 63	Execution Disable:
+#define PAGE_XD (1UL << 63)
+//	bit 12	Page Attribute Table
+#define PAGE_PAT (1UL << 12)
+//	bit 8	Global Page:1,global;0,part
+#define PAGE_Global (1UL << 8)
+//	bit 7	Page Size:1,big page;0,small page;
+#define PAGE_PS (1UL << 7)
+//	bit 6	Dirty:1,dirty;0,clean;
+#define PAGE_Dirty (1UL << 6)
+//	bit 5	Accessed:1,visited;0,unvisited;
+#define PAGE_Accessed (1UL << 5)
+//	bit 4	Page Level Cache Disable
+#define PAGE_PCD (1UL << 4)
+//	bit 3	Page Level Write Through
+#define PAGE_PWT (1UL << 3)
+//	bit 2	User Supervisor:1,user and supervisor;0,supervisor;
+#define PAGE_U_S (1UL << 2)
+//	bit 1	Read Write:1,read and write;0,read;
+#define PAGE_R_W (1UL << 1)
+//	bit 0	Present:1,present;0,no present;
+#define PAGE_Present (1UL << 0)
+// 1,0
+#define PAGE_KERNEL_GDT (PAGE_R_W | PAGE_Present)
+// 1,0
+#define PAGE_KERNEL_Dir (PAGE_R_W | PAGE_Present)
+// 7,1,0
+#define PAGE_KERNEL_Page (PAGE_PS | PAGE_R_W | PAGE_Present)
+// 2,1,0
+#define PAGE_USER_Dir (PAGE_U_S | PAGE_R_W | PAGE_Present)
+// 7,2,1,0
+#define PAGE_USER_Page (PAGE_PS | PAGE_U_S | PAGE_R_W | PAGE_Present)
+
+/**
+ * 构建页表的辅助操作
+ */
 typedef struct {
   unsigned long pml4t;
 } pml4t_t;
+// 构建 mpl4t 页表的页表项，addr 下级页表的物理地址，attr 页表项属性
+#define mk_mpl4t(addr, attr) ((unsigned long)(addr) | (unsigned long)(attr))
+// 设置 mpl4t 页表的页表项 [mpl4tptr]=mpl4tval
+#define set_mpl4t(mpl4tptr, mpl4tval) (*(mpl4tptr) = (mpl4tval))
 
+typedef struct {
+  unsigned long pdpt;
+} pdpt_t;
+#define mk_pdpt(addr, attr) ((unsigned long)(addr) | (unsigned long)(attr))
+#define set_pdpt(pdptptr, pdptval) (*(pdptptr) = (pdptval))
 
+typedef struct {
+  unsigned long pdt;
+} pdt_t;
+#define mk_pdt(addr, attr) ((unsigned long)(addr) | (unsigned long)(attr))
+#define set_pdt(pdtptr, pdtval) (*(pdtptr) = (pdtval))
+
+typedef struct {
+  unsigned long pt;
+} pt_t;
+#define mk_pt(addr, attr) ((unsigned long)(addr) | (unsigned long)(attr))
+#define set_pt(ptptr, ptval) (*(ptptr) = (ptval))
 
 // cr3 寄存器保存顶级页表地址
 unsigned long *Global_CR3 = NULL;
@@ -106,7 +165,7 @@ struct Global_Memory_Descriptor {
                      // 从这之后的物理内存可以任意使用
 };
 
-/* page.attribute */
+/* page 结构体中的页表属性 page.attribute */
 // 1=经过页表映射的页
 #define PG_PTable_Maped (1 << 0)
 // 1=内核初始化程序
@@ -353,5 +412,10 @@ void *__do_slab_malloc(struct Slab_cache *slab_cache, struct Slab *slab, unsigne
  * @brief 释放一个 Slab，使用 kfree 释放 Slab 和 位图
  */
 void __do_Slab_destory(struct Slab *slab);
+
+/**
+ * 将所有物理页全部映射到线性地址空间内
+ */
+void pagetable_init();
 
 #endif
