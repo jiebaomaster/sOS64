@@ -18,8 +18,8 @@ void Start_Kernel(void) {
   int i;
 
   // 初始化屏幕信息
-  Pos.XResolution = 1440;
-  Pos.YResolution = 900;
+  Pos.XResolution = 1024;
+  Pos.YResolution = 768;
 
   Pos.XPosition = 0;
   Pos.YPosition = 0;
@@ -28,7 +28,7 @@ void Start_Kernel(void) {
   Pos.YCharSize = 16;
 
   Pos.FB_addr = (int *)0xffff800003000000;
-  Pos.FB_length = (Pos.XResolution * Pos.YResolution * 4);
+  Pos.FB_length = (Pos.XResolution * Pos.YResolution * 4 + PAGE_4K_SIZE - 1) & PAGE_4K_MASK;
 
   // 初始化 tss
   load_TR(10);

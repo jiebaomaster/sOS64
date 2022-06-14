@@ -27,8 +27,7 @@ _start:
   mov   %ax,    %gs
   mov   %ax,    %ss
   movq  $0x7E00,  %rsp
-  
-//====== load cr3
+//====== load cr3 设置页表
 
   movq  $0x101000, %rax
   movq  %rax,   %cr3
@@ -223,15 +222,15 @@ __PDE:
 	.quad	0x2c00083
 	.quad	0x2e00083
 
-// 映射图像帧缓存，后 8 个页表项将物理地址前 0xe0000000 开始的 16MB 映射到线性地址 0x3000000 和 0xffff800003000000
-	.quad	0xe0000083		/* 线性地址 0x3000000 */
-	.quad	0xe0200083
-	.quad	0xe0400083
-	.quad	0xe0600083
-	.quad	0xe0800083
-	.quad	0xe0a00083
-	.quad	0xe0c00083
-	.quad	0xe0e00083
+// 映射图像帧缓存，后 8 个页表项将物理地址前 0xf1000000 开始的 16MB 映射到线性地址 0x3000000 和 0xffff800003000000
+	.quad	0xf1000083		/* 线性地址 0x3000000 */
+	.quad	0xf1200083
+	.quad	0xf1400083
+	.quad	0xf1600083
+	.quad	0xf1800083
+	.quad	0xf1a00083
+	.quad	0xf1c00083
+	.quad	0xf1e00083
 	.fill	480,8,0
 
 //====== GDT_TABLE

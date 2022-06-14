@@ -13,7 +13,7 @@ void frame_buffer_init() {
   unsigned long i;
   unsigned long *tmp;
   unsigned long *tmp1;
-  unsigned int *FB_addr = (unsigned int *)Phy_To_Virt(0xe0000000);
+  unsigned int *FB_addr = (unsigned int *)Phy_To_Virt(0xf1000000);
 
   Global_CR3 = Get_gdt();
 
@@ -37,11 +37,11 @@ void frame_buffer_init() {
         (((unsigned long)((unsigned long)FB_addr + i) >> PAGE_2M_SHIFT) &
          0x1ff));
 
-    unsigned long phy = 0xe0000000 + i;
+    unsigned long phy = 0xf1000000 + i;
     set_pdt(tmp1, mk_pdt(phy, PAGE_KERNEL_Page | PAGE_PWT | PAGE_PCD));
   }
 
-  Pos.FB_addr = (unsigned int *)Phy_To_Virt(0xe0000000);
+  Pos.FB_addr = (unsigned int *)Phy_To_Virt(0xf1000000);
 
   flush_tlb();
 }

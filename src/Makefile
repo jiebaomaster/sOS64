@@ -5,7 +5,7 @@ SUBDIRS := $(TOPDIR)/bootloader $(TOPDIR)/kernel
 ASM = nasm
 
 BOOTIMG = a.img
-DEVICE = $(dev)
+DEVICE = /dev/sdb
 
 all: $(patsubst %, _dir_%, $(SUBDIRS)) update_image
 

@@ -155,7 +155,7 @@ Label_No_KernelBin:
 ;======= found kernel.bin name in root director struct
 
 Label_FileName_Found:
-  mov   cx,   [BPB_SecPerClus] ; cx=8
+  mov   cx,   [BPB_SecPerClus] ; cx=16
   and   di,   0ffe0h          ; di=找到的目录的地址，对齐0x20
   add   di,   01ah            ; DIR_FstClus 字段的偏移
   mov   ax,   word  [es:di]   ; 取出 DIR_FstClus 字段，即第一个簇号
@@ -358,7 +358,7 @@ Label_Get_Mem_OK:
   mov   bp,   GetSVGAVBEInfoOKMessage  ; 用 bp 保存待输出字符串的内存地址
   int   10h           ; 输出读取 SVGA 成功的提示消息
 
-;======= TODO	Get SVGA Mode Info
+;=======	Get SVGA Mode Info
 
   mov   ax,   1301h   ; 功能号 ah=13h 显示一行字符串
   mov   bx,   000Fh   ; bh=00h 页码，bl=0fh 黑底白字
@@ -373,59 +373,121 @@ Label_Get_Mem_OK:
 
   mov   ax,   0x00
   mov   es,   ax
-  mov   si,   0x800e
+  mov   si,   0x8000
 
-  mov   esi,  dword [es:si]
-  mov   edi,  0x8200
+  mov   cx,   22h
 
-Label_SVGA_Mode_Info_Get:
-  mov   cx,   word  [es:esi]
+LOOP_Disp_VBE_Info: ; 显示 VbeInfoBlock 的前 22 字节数据
 
-;=======	display SVGA mode information
+	mov	ax,	00h
+	mov	al,	byte	[es:si]
+	call	Label_DispAL
+	add	si,	1
 
-  push  ax
+	loop	LOOP_Disp_VBE_Info
   
-  mov   ax,   00h
-  mov   al,   ch
-  call  Label_DispAL
+  ; 显示 0x55aa 分隔符
+  mov	cx,	0x55aa
+	push	ax	
+	mov	ax,	00h
+	mov	al,	ch
+	call	Label_DispAL
+	mov	ax,	00h
+	mov	al,	cl	
+	call	Label_DispAL	
+	pop	ax
+	
+	mov	cx,	0xff;;;;;;;;;;;;;;
 
-  mov   ax,   00h
-  mov   al,   cl	
-  call  Label_DispAL
+LABEL_Get_Mode_List: ; 遍历输出该平台支持的 VBE 模式号
+
+	add	cx,	1
+
+	cmp	cx,	0x200
+	jz	LABEL_Get_Mode_Finish
+
+	mov	ax,	4F01h ; 读取 VBE 模式号
+	mov	edi,	0x8200
+	int	10h
+
+	cmp	ax,	004Fh ; 获取成功，继续执行，否则获取下一个
+	jnz	LABEL_Get_Mode_List
   
-  pop   ax
+  ; ; 输出模式号
+  ; push	ax	
+	; mov	ax,	00h
+	; mov	al,	ch
+	; call	Label_DispAL
+	; mov	ax,	00h
+	; mov	al,	cl	
+	; call	Label_DispAL	
+	; pop	ax
 
-;=======
-  
-  cmp   cx,   0FFFFh
-  jz    Label_SVGA_Mode_Info_Finish
+	jmp	LABEL_Get_Mode_List
 
-  mov   ax,   4F01h
-  int   10h
+LABEL_Get_Mode_Finish:
+  ; 显示 0x55aa 分隔符
+  ; mov	cx,	0x55aa
+	; push	ax	
+	; mov	ax,	00h
+	; mov	al,	ch
+	; call	Label_DispAL
+	; mov	ax,	00h
+	; mov	al,	cl	
+	; call	Label_DispAL	
+	; pop	ax
 
-  cmp   ax,   004Fh
-  jnz   Label_SVGA_Mode_Info_FAIL	
+  ; 获取 0x118 模式的 ModeInfoBlock 结构
+; 	mov	cx,	0x118	;;;;;;;;;;;;mode
+; 	mov	ax,	4F01h
+; 	mov	edi,	0x8200
+; 	int	10h
+;   ; 显示模式号
+; 	push	ax	
+; 	mov	ax,	00h
+; 	mov	al,	ch
+; 	call	Label_DispAL
+; 	mov	ax,	00h
+; 	mov	al,	cl	
+; 	call	Label_DispAL	
+; 	pop	ax
+;   ; 显示 0x55aa 分隔符
+; 	mov	cx,	0x55aa
+; 	push	ax	
+; 	mov	ax,	00h
+; 	mov	al,	ch
+; 	call	Label_DispAL
+; 	mov	ax,	00h
+; 	mov	al,	cl	
+; 	call	Label_DispAL	
+; 	pop	ax
 
-  inc   dword [SVGAModeCounter]
-  add   esi,  2
-  add   edi,  0x100
+; 	mov	si,	0x8200
+; 	mov	cx,	128
 
-  jmp   Label_SVGA_Mode_Info_Get
-    
-Label_SVGA_Mode_Info_FAIL:
-  mov   ax,   1301h
-  mov   bx,   008Ch
-  mov   dx,   0D00h		;row 13
-  mov   cx,   24
-  push  ax
-  mov   ax,   ds
-  mov   es,   ax
-  pop   ax
-  mov   bp,   GetSVGAModeInfoErrMessage
-  int   10h
+; LOOP_Disp_Mode_Info: ; 显示 ModeInfoBlock 结构
+	; mov	ax,	00h
+	; mov	al,	byte	[es:si]
+	; call	Label_DispAL
+	; add	si,	1
+	; loop	LOOP_Disp_Mode_Info
+	; jmp	$
+
+  jmp	Label_SVGA_Mode_Info_Finish
 
 Label_SET_SVGA_Mode_VESA_VBE_FAIL:
-  jmp   $
+
+	mov	ax,	1301h
+	mov	bx,	008Ch
+	mov	dx,	0D00h		;row 13
+	mov	cx,	27
+	push	ax
+	mov	ax,	ds
+	mov	es,	ax
+	pop	ax
+	mov	bp,	SetSVGAModeInfoVBAVESAMessage
+	int	10h
+	jmp	$
 
 Label_SVGA_Mode_Info_Finish:
   mov   ax,   1301h
@@ -454,14 +516,16 @@ Label_SVGA_Mode_Info_Finish:
   mov   es,   ax
   
   cli                   ; 关外部中断
-  db    0x66
-  lgdt  [GdtPtr]        ; 重新加载 gdt 指针
-  db    0x66
+  db    66h
   lidt  [IDT_POINTER]   ; （可选）重新加载 idt 指针
+  db    66h
+  lgdt  [GdtPtr]        ; 重新加载 gdt 指针
+
   mov   eax,  cr0
   or    eax,  1
   mov   cr0,  eax       ; 设置 cr0 的第 1 位，打开保护模式
-  jmp   dword SelectorCode32:GO_TO_TMP_Protect  ; 通过一个远跳转指令将保护模式的代码端选择子SelectorCode32
+
+  jmp   dword SelectorCode32:GO_TO_TMP_Protect  ; 通过一个远跳转指令将保护模式的代码段选择子SelectorCode32
                                                 ; 加载到 cs，便可运行保护模式的代码段
   
 [SECTION .s32]
@@ -571,7 +635,7 @@ support_long_mode_done:
 no_support:
   jmp   $      
 
-[SECTION .s16lib]
+[SECTION .s116]
 [BITS 16]
 
 ;======= read one sector from floppy
@@ -715,3 +779,4 @@ GetSVGAVBEInfoOKMessage:    db    "Get SVGA VBE Info SUCCESSFUL!"
 StartGetSVGAModeInfoMessage:db    "Start Get SVGA Mode Info"
 GetSVGAModeInfoErrMessage:  db    "Get SVGA Mode Info ERROR"
 GetSVGAModeInfoOKMessage:   db    "Get SVGA Mode Info SUCCESSFUL!"
+SetSVGAModeInfoVBAVESAMessage:  db  "Set SVGA Mode VBE VESA Fail"
