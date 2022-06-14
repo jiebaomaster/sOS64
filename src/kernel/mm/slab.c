@@ -6,6 +6,7 @@
  */
 struct Slab *get_new_Slab(unsigned long size) {
   // malloc slab
+  int i;
   struct Slab *slab = (struct Slab *)kmalloc(sizeof(struct Slab), 0);
   if (!slab) {
     printk_error("get_new_Slab => kmalloc <Slab> failed!\n");
@@ -35,7 +36,7 @@ struct Slab *get_new_Slab(unsigned long size) {
     goto page_out;
   }
   memset(slab->color_map, 0xff, slab->color_length);
-  for (int i = 0; i < slab->color_count; i++)
+  for (i = 0; i < slab->color_count; i++)
     *(slab->color_map + (i >> 6)) ^= 1UL << i % 64;
 
   return slab;
@@ -139,7 +140,8 @@ unsigned long slab_destory(struct Slab_cache *slab_cache) {
  */
 void *__do_slab_malloc(struct Slab_cache *slab_cache, struct Slab *slab,
                        unsigned long arg) {
-  for (int j = 0; j < slab->color_count; j++) {
+  int j;
+  for (j = 0; j < slab->color_count; j++) {
     // 这一个 64 位 全都是 1，直接跳到下一个，加速比较
     if (*(slab->color_map + (j >> 6)) == 0xffffffffffffffffUL) {
       j += 63;
@@ -267,12 +269,13 @@ unsigned long slab_free(struct Slab_cache *slab_cache, void *address,
  * @return 0=失败，1=成功
  */
 unsigned long kmalloc_slab_init() {
+  unsigned long i, j;
   struct Slab *pSlab = NULL;
   // 记录可用内存的起点
   unsigned long origin_end_of_struct = memory_management_struct.end_of_struct;
 
   ////////// 1. 从全局物理内存中分配空间给内存池的 Slab，并初始化
-  for (int i = 0; i < 16; i++) {
+  for (i = 0; i < 16; i++) {
     // 从全局物理内存的可用内存部分划一块分配给内存池存放 <struct Slab，bitmap>
     pSlab = (struct Slab *)memory_management_struct.end_of_struct;
     kmalloc_cache_size[i].cache_pool = pSlab;
@@ -292,8 +295,8 @@ unsigned long kmalloc_slab_init() {
                         pSlab->color_length + sizeof(long) * 10) &
         (~(sizeof(long) - 1));
     memset(pSlab->color_map, 0xff, pSlab->color_length);
-    for (int i = 0; i < pSlab->color_count; i++)
-      *(pSlab->color_map + (i >> 6)) ^= 1UL << i % 64;
+    for (j = 0; j < pSlab->color_count; j++)
+      *(pSlab->color_map + (j >> 6)) ^= 1UL << j % 64;
 
     kmalloc_cache_size[i].total_free = pSlab->color_count;
     kmalloc_cache_size[i].total_using = 0;
@@ -303,7 +306,7 @@ unsigned long kmalloc_slab_init() {
   unsigned long cur_end_of_struct =
       Virt_To_Phy(memory_management_struct.end_of_struct) >> PAGE_2M_SHIFT;
   struct Page *page = NULL;
-  for (unsigned long i =
+  for (i =
            PAGE_2M_ALIGN(Virt_To_Phy(origin_end_of_struct)) >> PAGE_2M_SHIFT;
        i <= cur_end_of_struct; i++) {
     page = memory_management_struct.pages_struct + i;
@@ -325,7 +328,7 @@ unsigned long kmalloc_slab_init() {
 
   ////////// 3. 从全局物理内存中分配空间给内存池的 Slab 管理的数据存储区，并初始化
   unsigned long *cache_area = NULL;
-  for (int i = 0; i < 16; i++) {
+  for (0; i < 16; i++) {
     cache_area = (unsigned long *)((memory_management_struct.end_of_struct +
                                     PAGE_2M_SIZE * i + PAGE_2M_SIZE - 1) &
                                    PAGE_2M_MASK);

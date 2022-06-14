@@ -452,8 +452,8 @@ void free_pages(struct Page *page, int number) {
     printk_error("free_pages => ERROR: number is invalid\n");
     return;
   }
-
-  for (int i = 0; i < number; i++, page++) {
+  int i;
+  for (i = 0; i < number; i++, page++) {
     *(memory_management_struct.bits_map +
       ((page->PHY_address >> PAGE_2M_SHIFT) >> 6)) &=
         ~(1UL << (page->PHY_address >> PAGE_2M_SHIFT) % 64);
@@ -470,6 +470,7 @@ void free_pages(struct Page *page, int number) {
  * @return struct Slab* 
  */
 struct Slab *kmalloc_create(unsigned long size) {
+  int i;
   struct Slab *pSlab = NULL;
   struct Page *page = NULL;
   unsigned long *page_address = NULL;
@@ -510,7 +511,7 @@ struct Slab *kmalloc_create(unsigned long size) {
     pSlab->using_count = 0;
     pSlab->color_count = pSlab->free_count;
     memset(pSlab->color_map, 0xff, pSlab->color_length);
-    for (int i = 0; i < pSlab->color_count; i++)
+    for (i = 0; i < pSlab->color_count; i++)
       *(pSlab->color_map + (i >> 6)) ^= 1UL << i % 64;
 
     pSlab->Vaddress = page_address;
@@ -609,9 +610,10 @@ void *kmalloc(unsigned long size, unsigned long gfp_flags) {
  * @return 0=失败，1=成功
  */
 unsigned long kfree(void *address) {
+  int i;
   struct Slab * pSlab = NULL;
   unsigned long page_base_addr = (unsigned long)address & PAGE_2M_MASK;
-  for(int i = 0; i < 16; i++) {
+  for(i = 0; i < 16; i++) {
     pSlab = kmalloc_cache_size[i].cache_pool;
     do {
       // 找到 page_base_addr 地址所在的 Slab
@@ -675,24 +677,25 @@ void pagetable_init() {
   tmp = (unsigned long *)(((unsigned long)Phy_To_Virt(
                               (unsigned long)Global_CR3 & (~0xfffUL))) +
                           8 * 256);
-  printk("1:%#018lx,%#018lx\t\t\n", (unsigned long)tmp, *tmp);
+  // printk("1:%#018lx,%#018lx\t\t\n", (unsigned long)tmp, *tmp);
   tmp = Phy_To_Virt(*tmp & (~0xfffUL));
-  printk("2:%#018lx,%#018lx\t\t\n", (unsigned long)tmp, *tmp);
+  // printk("2:%#018lx,%#018lx\t\t\n", (unsigned long)tmp, *tmp);
   tmp = Phy_To_Virt(*tmp & (~0xfffUL));
-  printk("3:%#018lx,%#018lx\t\t\n", (unsigned long)tmp, *tmp);
+  // printk("3:%#018lx,%#018lx\t\t\n", (unsigned long)tmp, *tmp);
 
   // 把 normal zone 中的所有物理页全部映射到线性地址空间内，
   // 则内核层可以访问到全部物理页，即内核层不会发生缺页中断
 
   // 遍历所有 zone
-  for(unsigned long i = 0; i < memory_management_struct.zones_size; i++) {
+  unsigned long i, j;
+  for(i = 0; i < memory_management_struct.zones_size; i++) {
     if(ZONE_UNMAPED_INDEX && i == ZONE_UNMAPED_INDEX) break;
 
     struct Zone* z = memory_management_struct.zones_struct + i;
     struct Page* p = z->pages_group;
 
     // 遍历 zone 下的所有 page
-    for(unsigned long j = 0; j < z->pages_length; j++, p++) {
+    for(j = 0; j < z->pages_length; j++, p++) {
       // tmp 指向 PML4T 中 page 对应的页表项
       tmp = (unsigned long*)(((unsigned long)Phy_To_Virt((unsigned long)Global_CR3 & (~0xfffUL))) + (((unsigned long)Phy_To_Virt(p->PHY_address) >> PAGE_GDT_SHIFT) & 0x1ff) * 8);
       if(*tmp == 0) { // 页表项为空，分配下级页表 PDPT，并设置 PML4T 中对应的页表项
@@ -713,8 +716,8 @@ void pagetable_init() {
       set_pdt(tmp, mk_pdt(p->PHY_address, PAGE_KERNEL_Page));
 
       // debug 信息
-      if (j % 50 == 0)
-				printk_debug("@:%#018lx, %#018lx\t\n",(unsigned long)tmp, *tmp);
+      // if (j % 50 == 0)
+      // printk_debug("@:%#018lx, %#018lx\t\n", (unsigned long)tmp, *tmp);
     }
   }
   
