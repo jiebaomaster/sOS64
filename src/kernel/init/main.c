@@ -3,9 +3,14 @@
 #include "mm.h"
 #include "printk.h"
 #include "trap.h"
-#include "interrupt.h"
 #include "task.h"
 #include "cpu.h"
+
+#if APIC
+#include "APIC.h"
+#else
+#include "8259A.h"
+#endif
 
 // 链接脚本中定义的记录段地址的变量
 extern char _text;
@@ -60,7 +65,12 @@ void Start_Kernel(void) {
   pagetable_init();
 
   color_printk(RED, BLACK, "interrupt init \n");
-  init_interrupt();
+  #if APIC
+  APIC_IOAPIC_init();
+  #else
+  init_8259A();
+  #endif
+    
 
   // color_printk(RED, BLACK, "task_init \n");
   // task_init();
