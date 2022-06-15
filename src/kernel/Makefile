@@ -9,10 +9,12 @@ C_OBJECTS = $(patsubst %.c, %.o, $(C_SOURCES))
 S_SOURCES = $(shell find . -name "*.S")
 S_OBJECTS = $(patsubst %.S, %.o, $(S_SOURCES))
 
+BOOTLOADER := UEFI
+
 ROOT_INCLUDE_PATH =  $(shell pwd)/include
 
 CC = gcc
-C_FLAGS = -mcmodel=large -fno-builtin -fno-stack-protector -m64 -c -I $(ROOT_INCLUDE_PATH) -D$(PIC)
+C_FLAGS = -mcmodel=large -fno-builtin -fno-stack-protector -m64 -c -I $(ROOT_INCLUDE_PATH) -D$(PIC) -D$(BOOTLOADER)
 ASM = as
 ASM_FLAGS = --64
 LD_FLAGS = -b elf64-x86-64 -z muldefs -T Kernel.lds

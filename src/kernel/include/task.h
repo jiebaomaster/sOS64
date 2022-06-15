@@ -17,6 +17,7 @@
 // 内核线程栈的大小 32KB
 #define STACK_SIZE 32768
 
+// 链接脚本中定义的记录段地址的变量
 extern char _text;
 extern char _etext;
 extern char _data;

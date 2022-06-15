@@ -3,6 +3,38 @@
 #include "mm.h"
 #include <stdarg.h>
 
+#if UEFI
+#include "UEFI_boot_param_info.h"
+#endif
+
+static char buf[4096] = {0}; // 存储格式化后字符串的缓冲区
+
+// 全局定义一个保存屏幕信息的变量
+// 这个结构体必须初始化，不然会引导失败！
+struct position Pos = {
+    .XResolution = 1280,
+    .YResolution = 1024,
+
+    .XPosition = 0,
+    .YPosition = 0,
+
+    .XCharSize = 8,
+    .YCharSize = 16,
+
+    .FB_addr = (int *)0xffff800003000000,
+    .FB_length = 0x300000,
+};
+
+/**
+ * UEFI 模式可由 boot_para_info 读取到帧缓冲区起始地址
+ * BIOS 模式只能手动指定
+ */
+#if UEFI
+#define FrameBufferBase (boot_para_info->Graphics_Info.FrameBufferBase)
+#else
+#define FrameBufferBase (0xA3000000)
+#endif
+
 /**
  * 重新映射 VBE 帧缓冲区的线形地址
  * 当前帧缓冲区占用了线性地址 0x3000000 开始的 16 MB，导致这个地址区间不可使用
@@ -13,23 +45,30 @@ void frame_buffer_init() {
   unsigned long i;
   unsigned long *tmp;
   unsigned long *tmp1;
-  unsigned int *FB_addr = (unsigned int *)Phy_To_Virt(0xf1000000);
+  unsigned int *FB_addr = (unsigned int *)Phy_To_Virt(FrameBufferBase);
+  color_printk(RED, BLACK, "frame buffer addr %#018lx\t \n", FB_addr);
+
 
   Global_CR3 = Get_gdt();
+  color_printk(RED, BLACK, "frame buffer init 1 \n");
 
   tmp = Phy_To_Virt((unsigned long *)((unsigned long)Global_CR3 & (~0xfffUL)) +
                     (((unsigned long)FB_addr >> PAGE_GDT_SHIFT) & 0x1ff));
   if (*tmp == 0) {
     unsigned long *newPDPT = kmalloc(PAGE_4K_SIZE, 0);
+		memset(newPDPT,0,PAGE_4K_SIZE);
     set_mpl4t(tmp, mk_mpl4t(Virt_To_Phy(newPDPT), PAGE_KERNEL_GDT));
   }
+  color_printk(RED, BLACK, "frame buffer init 2 \n");
 
   tmp = Phy_To_Virt((unsigned long *)(*tmp & (~0xfffUL)) +
                     (((unsigned long)FB_addr >> PAGE_1G_SHIFT) & 0x1ff));
   if (*tmp == 0) {
     unsigned long *newPDT = kmalloc(PAGE_4K_SIZE, 0);
+		memset(newPDT,0,PAGE_4K_SIZE);
     set_pdpt(tmp, mk_pdpt(Virt_To_Phy(newPDT), PAGE_KERNEL_Dir));
   }
+  color_printk(RED, BLACK, "frame buffer init 3 \n");
 
   for (i = 0; i < Pos.FB_length; i += PAGE_2M_SIZE) {
     tmp1 = Phy_To_Virt(
@@ -37,11 +76,14 @@ void frame_buffer_init() {
         (((unsigned long)((unsigned long)FB_addr + i) >> PAGE_2M_SHIFT) &
          0x1ff));
 
-    unsigned long phy = 0xf1000000 + i;
+    unsigned long phy = FrameBufferBase + i;
     set_pdt(tmp1, mk_pdt(phy, PAGE_KERNEL_Page | PAGE_PWT | PAGE_PCD));
   }
+  color_printk(RED, BLACK, "frame buffer init 4 \n");
 
-  Pos.FB_addr = (unsigned int *)Phy_To_Virt(0xf1000000);
+  Pos.FB_addr = (unsigned int *)Phy_To_Virt(FrameBufferBase);
+
+  color_printk(RED, BLACK, "frame buffer init 5 \n");
 
   flush_tlb();
 }

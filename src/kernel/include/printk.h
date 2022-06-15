@@ -41,11 +41,10 @@ struct position { // 屏幕信息
 
   unsigned int *FB_addr;   // 帧缓存区起始地址，FB = Frame Buffer
   unsigned long FB_length; // 帧缓存区容量，单位 byte
-} Pos;                     // 全局定义一个保存屏幕信息的变量
+};
 
+extern struct position Pos;
 extern unsigned char font_ascii[256][16];
-
-char buf[4096] = {0}; // 存储格式化后字符串的缓冲区
 
 // n /= base，返回余数部分 __res
 #define do_div(n, base)                                                        \

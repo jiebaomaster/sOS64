@@ -58,13 +58,19 @@ void init_memory() {
   unsigned long phymmend;     // 物理内存空间的结束地址
   // 在 loader 中由 BIOS 中断获取的物理内存空间信息被存储在线性地址
   // 0xffff800000007e00 处
+#if UEFI
+  struct E820 *p = boot_para_info->E820_Info.E820_Entry;
+  int E820_Entry_count = boot_para_info->E820_Info.E820_Entry_count;
+#else
   struct E820 *p = (struct E820 *)0xffff800000007e00;
+  int E820_Entry_count = 32;
+#endif
 
   printk("Display Physics Address MAP,Type(1:RAM,2:ROM or Reserved,3:ACPI "
          "Reclaim Memory,4:ACPI NVS Memory,Others:Undefine)\n");
   
   // 解析物理内存空间信息，保存到全局内存管理结构体中
-  for (i = 0; i < 32; i++) {
+  for (i = 0; i < E820_Entry_count; i++) {
     printk("Address:%#018lx\tLength:%#018lx\tType:%#010x\n", p->address,
            p->length, p->type);
     if (p->type == 1) // 统计可用物理内存长度
@@ -164,9 +170,9 @@ void init_memory() {
       memory_management_struct.pages_length);
   // struct zone 结构体数组的元素个数暂时不能确定
   memory_management_struct.zones_size = 0;
-  // 分配内存空间时假设有 5 个zone
+  // 分配内存空间时假设有 10 个zone
   memory_management_struct.zones_length =
-      (5 * sizeof(struct Zone) + sizeof(long) - 1) & (~(sizeof(long) - 1));
+      (10 * sizeof(struct Zone) + sizeof(long) - 1) & (~(sizeof(long) - 1));
   // 清零 struct zone 结构体数组
   memset(memory_management_struct.zones_struct, 0x00,
          memory_management_struct.zones_length);

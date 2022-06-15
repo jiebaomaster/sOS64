@@ -5,13 +5,15 @@
 .globl  _start
 
 _start:
-  mov   $0x10,  %ax
+  mov   %ss,    %ax
   mov   %ax,    %ds
   mov   %ax,    %es
   mov   %ax,    %fs
   mov   %ax,    %ss
   mov   $0x7E00,  %esp
 
+  movq  $0x101000,  %rax
+  movq  %rax,       %cr3
 //====== load GDTR
 
   lgdt  GDT_POINTER(%rip)
@@ -26,7 +28,9 @@ _start:
   mov   %ax,    %fs
   mov   %ax,    %gs
   mov   %ax,    %ss
-  movq  $0x7E00,  %rsp
+  
+  movq  _stack_start(%rip),  %rsp
+  
 //====== load cr3 设置页表
 
   movq  $0x101000, %rax
@@ -223,15 +227,16 @@ __PDE:
 	.quad	0x2e00083
 
 // 映射图像帧缓存，后 8 个页表项将物理地址前 0xf1000000 开始的 16MB 映射到线性地址 0x3000000 和 0xffff800003000000
-	.quad	0xf1000083		/* 线性地址 0x3000000 */
-	.quad	0xf1200083
-	.quad	0xf1400083
-	.quad	0xf1600083
-	.quad	0xf1800083
-	.quad	0xf1a00083
-	.quad	0xf1c00083
-	.quad	0xf1e00083
-	.fill	480,8,0
+// UEFI 中不需要手动映射了
+	; .quad	0xf1000083		/* 线性地址 0x3000000 */
+	; .quad	0xf1200083
+	; .quad	0xf1400083
+	; .quad	0xf1600083
+	; .quad	0xf1800083
+	; .quad	0xf1a00083
+	; .quad	0xf1c00083
+	; .quad	0xf1e00083
+	.fill	488,8,0
 
 //====== GDT_TABLE
 

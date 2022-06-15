@@ -5,6 +5,12 @@
 #include "printk.h"
 #include "list.h"
 
+#if UEFI
+#include "UEFI_boot_param_info.h"
+#else
+#include "BIOS_boot_param_info.h"
+#endif
+
 // 每个页表的页表项数目，每个页表4KB，每个页表项8B
 #define PTRS_PER_PAGE 512
 // 内核层的起始线性地址
@@ -115,23 +121,6 @@ typedef struct {
 
 // cr3 寄存器保存顶级页表地址
 unsigned long *Global_CR3 = NULL;
-
-/**
- * @brief 由 BIOS 中断 E820 获取的物理内存空间信息结构体
- * 物理内存空间信息保存在线性地址 0xffff800000007e00 处
- *
- * 物理内存空间的类型：
- * 1:RAM,
- * 2:ROM or Reserved,
- * 3:ACPI Reclaim Memory,
- * 4:ACPI NVS Memory,
- * Others:Undefine
- */
-struct E820 {
-  unsigned long address; // 起始地址
-  unsigned long length;  // 内存空间长度
-  unsigned int type;     // 内存类型
-} __attribute__((packed));
 
 /**
  * @brief 全局内存信息
