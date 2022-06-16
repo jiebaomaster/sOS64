@@ -46,31 +46,29 @@ void frame_buffer_init() {
   unsigned long *tmp;
   unsigned long *tmp1;
   unsigned int *FB_addr = (unsigned int *)Phy_To_Virt(FrameBufferBase);
-  color_printk(RED, BLACK, "frame buffer addr %#018lx\t \n", FB_addr);
 
-
-  Global_CR3 = Get_gdt();
-  color_printk(RED, BLACK, "frame buffer init 1 \n");
-
-  tmp = Phy_To_Virt((unsigned long *)((unsigned long)Global_CR3 & (~0xfffUL)) +
+  // gdt 中的表项
+  tmp = Phy_To_Virt((unsigned long *)((unsigned long)Get_gdt() & (~0xfffUL)) +
                     (((unsigned long)FB_addr >> PAGE_GDT_SHIFT) & 0x1ff));
+
   if (*tmp == 0) {
     unsigned long *newPDPT = kmalloc(PAGE_4K_SIZE, 0);
 		memset(newPDPT,0,PAGE_4K_SIZE);
     set_mpl4t(tmp, mk_mpl4t(Virt_To_Phy(newPDPT), PAGE_KERNEL_GDT));
   }
-  color_printk(RED, BLACK, "frame buffer init 2 \n");
 
+  // pdpt 中的表项
   tmp = Phy_To_Virt((unsigned long *)(*tmp & (~0xfffUL)) +
                     (((unsigned long)FB_addr >> PAGE_1G_SHIFT) & 0x1ff));
+
   if (*tmp == 0) {
     unsigned long *newPDT = kmalloc(PAGE_4K_SIZE, 0);
 		memset(newPDT,0,PAGE_4K_SIZE);
     set_pdpt(tmp, mk_pdpt(Virt_To_Phy(newPDT), PAGE_KERNEL_Dir));
   }
-  color_printk(RED, BLACK, "frame buffer init 3 \n");
 
   for (i = 0; i < Pos.FB_length; i += PAGE_2M_SIZE) {
+    // pdt 中的表项
     tmp1 = Phy_To_Virt(
         (unsigned long *)(*tmp & (~0xfffUL)) +
         (((unsigned long)((unsigned long)FB_addr + i) >> PAGE_2M_SHIFT) &
@@ -79,11 +77,11 @@ void frame_buffer_init() {
     unsigned long phy = FrameBufferBase + i;
     set_pdt(tmp1, mk_pdt(phy, PAGE_KERNEL_Page | PAGE_PWT | PAGE_PCD));
   }
-  color_printk(RED, BLACK, "frame buffer init 4 \n");
-
-  Pos.FB_addr = (unsigned int *)Phy_To_Virt(FrameBufferBase);
-
-  color_printk(RED, BLACK, "frame buffer init 5 \n");
+  
+  // FIXME 在物理机中，想要重映射后能正常显示，必须将 YPosition 设为一个较小的数
+  // 可以是手动设置，也可以是在此之前的 print 操作使得 YPosition 翻页
+  Pos.YPosition = 0;
+  Pos.FB_addr = FB_addr;
 
   flush_tlb();
 }
@@ -271,7 +269,7 @@ int vsprintf(char *buf, const char *fmt, va_list args) {
     else if (*fmt == '*') { // 宽度在 format 字符串中未指定，则由扩展参数给出
       fmt++;
       field_width = va_arg(args, int);
-      if (field_width < 0) { // 扩展参数为负数，将负号看做 flags
+      if (field_width < 0) { // 扩展参数为负数，将负号看做 flags
         field_width = -field_width;
         flags |= LEFT;
       }
