@@ -1,7 +1,7 @@
 PIC := APIC
 C_SOURCES_ORIGIN = $(shell find . -name "*.c")
-PIC_SOURCES = $(shell find "./idt/pic" -name "*.c")
-TARGET_PIC_SOURCES = $(shell find "./idt/pic" -name "*$(PIC).c")
+PIC_SOURCES = $(shell find "./device/pic" -name "*.c")
+TARGET_PIC_SOURCES = $(shell find "./device/pic" -name "*$(PIC).c")
 TARGET_PIC_OBJECTS = $(patsubst %.c, %.o, $(TARGET_PIC_SOURCES))
 
 C_SOURCES = $(filter-out $(PIC_SOURCES), $(C_SOURCES_ORIGIN))
