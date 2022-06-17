@@ -105,11 +105,13 @@ void Start_Kernel(void) {
   #else
   init_8259A();
   #endif
-    
+
+  color_printk(RED, BLACK, "keyboard init \n");
+  keyboard_init();
 
   // color_printk(RED, BLACK, "task_init \n");
   // task_init();
 
   while (1)
-    ;
+    analysis_keycode();
 }

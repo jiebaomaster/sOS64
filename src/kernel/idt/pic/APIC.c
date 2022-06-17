@@ -279,8 +279,6 @@ void IOAPIC_init() {
   for (i = 0x10; i < 0x40; i += 2)
     ioapic_rte_write(i, 0x10020 + ((i - 0x10) >> 1));
 
-  // 打开键盘中断，即 1 号中断
-  ioapic_rte_write(0x12, 0x21);
   color_printk(GREEN, BLACK,
                "I/O APIC Redirection Table Entries Set Finished.\n");
 }
@@ -354,11 +352,7 @@ void APIC_IOAPIC_init() {
  * @param nr 中断向量号
  */
 void do_IRQ(struct pt_regs *regs, unsigned long nr) {
-  unsigned char x;
   irq_desc_T *irq = &interrupt_desc[nr - 32];
-
-  x = io_in8(0x60);
-  color_printk(BLUE, WHITE, "(IRQ:%#04x)\tkey code:%#04x\n", nr, x);
 
   // 调用实际的中断处理函数
   if (irq->handler != NULL)
@@ -366,10 +360,4 @@ void do_IRQ(struct pt_regs *regs, unsigned long nr) {
   // 调用中断应答函数
   if (irq->controller != NULL && irq->controller->ack != NULL)
     irq->controller->ack(nr);
-
-  __asm__ __volatile__("movq	$0x00,	%%rdx	\n\t"
-                       "movq	$0x00,	%%rax	\n\t"
-                       "movq 	$0x80b,	%%rcx	\n\t"
-                       "wrmsr	\n\t" ::
-                           : "memory");
 }

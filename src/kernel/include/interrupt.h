@@ -3,7 +3,7 @@
 
 #include "ptrace.h"
 
-// 中断控制接口
+// 中断控制接口，操作物理设备
 typedef struct hw_int_type {
   void (*enable)(unsigned long irq); // 使能中断
   void (*disable)(unsigned long irq); // 禁用中断
