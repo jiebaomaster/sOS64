@@ -100,3 +100,48 @@ void (* interrupt[24])(void) = {
   IRQ0x36_interrupt,
   IRQ0x37_interrupt,
 };
+
+
+/**
+ * @brief 在 interrupt_desc 中注册中断处理函数
+ * 
+ * @param irq 中断向量号
+ */
+int register_irq(unsigned long irq, void *arg,
+                 void (*handler)(unsigned long nr, unsigned long parameter,
+                                 struct pt_regs *regs),
+                 unsigned long parameter, hw_int_controller *controller,
+                 char *irq_name) {
+  irq_desc_T *p = &interrupt_desc[irq - 32];
+  
+  p->controller = controller;
+  p->handler = handler;
+  p->parameter = parameter;
+  p->irq_name = irq_name;
+  p->flags = 0;
+
+  p->controller->install(irq, arg);
+  p->controller->enable(irq);
+
+  return 1;
+}
+
+/**
+ * @brief 在 interrupt_desc 中注销中断处理函数
+ * 
+ * @param irq 中断向量号
+ */
+int unregister_irq(unsigned long irq) {
+  irq_desc_T *p = &interrupt_desc[irq - 32];
+  
+  p->controller->disable(irq);
+  p->controller->uninstall(irq);
+  
+  p->controller = NULL;
+  p->handler = NULL;
+  p->parameter = NULL;
+  p->irq_name = NULL;
+  p->flags = 0;
+  
+  return 1;
+}

@@ -1,14 +1,133 @@
-
 #include "APIC.h"
 #include "cpu.h"
 #include "gate.h"
+#include "interrupt.h"
 #include "lib.h"
+#include "linkage.h"
 #include "mm.h"
 #include "printk.h"
+#include "ptrace.h"
 
-/**
- * 初始化 loacl APIC
- */
+void IOAPIC_enable(unsigned long irq) {
+  unsigned long value = 0;
+  value = ioapic_rte_read((irq - 32) * 2 + 0x10);
+  value = value & (~0x10000UL);
+  ioapic_rte_write((irq - 32) * 2 + 0x10, value);
+}
+
+void IOAPIC_disable(unsigned long irq) {
+  unsigned long value = 0;
+  value = ioapic_rte_read((irq - 32) * 2 + 0x10);
+  value = value | 0x10000UL;
+  ioapic_rte_write((irq - 32) * 2 + 0x10, value);
+}
+
+unsigned long IOAPIC_install(unsigned long irq, void *arg) {
+  struct IO_APIC_RET_entry *entry = (struct IO_APIC_RET_entry *)arg;
+  ioapic_rte_write((irq - 32) * 2 + 0x10, *(unsigned long *)entry);
+
+  return 1;
+}
+
+void IOAPIC_uninstall(unsigned long irq) {
+  ioapic_rte_write((irq - 32) * 2 + 0x10, 0x10000UL);
+}
+
+void IOAPIC_level_ack(unsigned long irq) {
+  __asm__ __volatile__("movq	$0x00,	%%rdx	\n\t"
+                       "movq	$0x00,	%%rax	\n\t"
+                       "movq 	$0x80b,	%%rcx	\n\t"
+                       "wrmsr	\n\t" ::
+                           : "memory");
+
+  *ioapic_map.virtual_EOI_address = irq;
+}
+
+void IOAPIC_edge_ack(unsigned long irq) {
+  __asm__ __volatile__("movq	$0x00,	%%rdx	\n\t"
+                       "movq	$0x00,	%%rax	\n\t"
+                       "movq 	$0x80b,	%%rcx	\n\t"
+                       "wrmsr	\n\t" ::
+                           : "memory");
+}
+
+unsigned long ioapic_rte_read(unsigned char index) {
+  unsigned long ret;
+
+  *ioapic_map.virtual_index_address = index + 1;
+  io_mfence();
+  ret = *ioapic_map.virtual_data_address;
+  ret <<= 32;
+  io_mfence();
+
+  *ioapic_map.virtual_index_address = index;
+  io_mfence();
+  ret |= *ioapic_map.virtual_data_address;
+  io_mfence();
+
+  return ret;
+}
+
+void ioapic_rte_write(unsigned char index, unsigned long value) {
+  *ioapic_map.virtual_index_address = index;
+  io_mfence();
+  *ioapic_map.virtual_data_address = value & 0xffffffff;
+  value >>= 32;
+  io_mfence();
+
+  *ioapic_map.virtual_index_address = index + 1;
+  io_mfence();
+  *ioapic_map.virtual_data_address = value & 0xffffffff;
+  io_mfence();
+}
+
+void IOAPIC_pagetable_remap() {
+  unsigned long *tmp;
+  unsigned char *IOAPIC_addr = (unsigned char *)Phy_To_Virt(0xfec00000);
+
+  ioapic_map.physical_address = 0xfec00000;
+  ioapic_map.virtual_index_address = IOAPIC_addr;
+  ioapic_map.virtual_data_address = (unsigned int *)(IOAPIC_addr + 0x10);
+  ioapic_map.virtual_EOI_address = (unsigned int *)(IOAPIC_addr + 0x40);
+
+  Global_CR3 = Get_gdt();
+
+  tmp = Phy_To_Virt(Global_CR3 +
+                    (((unsigned long)IOAPIC_addr >> PAGE_GDT_SHIFT) & 0x1ff));
+  if (*tmp == 0) {
+    unsigned long *virtual = kmalloc(PAGE_4K_SIZE, 0);
+    set_mpl4t(tmp, mk_mpl4t(Virt_To_Phy(virtual), PAGE_KERNEL_GDT));
+  }
+
+  color_printk(YELLOW, BLACK, "1:%#018lx\t%#018lx\n", (unsigned long)tmp,
+               (unsigned long)*tmp);
+
+  tmp = Phy_To_Virt((unsigned long *)(*tmp & (~0xfffUL)) +
+                    (((unsigned long)IOAPIC_addr >> PAGE_1G_SHIFT) & 0x1ff));
+  if (*tmp == 0) {
+    unsigned long *virtual = kmalloc(PAGE_4K_SIZE, 0);
+    set_pdpt(tmp, mk_pdpt(Virt_To_Phy(virtual), PAGE_KERNEL_Dir));
+  }
+
+  color_printk(YELLOW, BLACK, "2:%#018lx\t%#018lx\n", (unsigned long)tmp,
+               (unsigned long)*tmp);
+
+  tmp = Phy_To_Virt((unsigned long *)(*tmp & (~0xfffUL)) +
+                    (((unsigned long)IOAPIC_addr >> PAGE_2M_SHIFT) & 0x1ff));
+  set_pdt(tmp, mk_pdt(ioapic_map.physical_address,
+                      PAGE_KERNEL_Page | PAGE_PWT | PAGE_PCD));
+
+  color_printk(BLUE, BLACK, "3:%#018lx\t%#018lx\n", (unsigned long)tmp,
+               (unsigned long)*tmp);
+
+  color_printk(BLUE, BLACK, "ioapic_map.physical_address:%#010x\t\t\n",
+               ioapic_map.physical_address);
+  color_printk(BLUE, BLACK, "ioapic_map.virtual_address:%#018lx\t\t\n",
+               (unsigned long)ioapic_map.virtual_index_address);
+
+  flush_tlb();
+}
+
 void Local_APIC_init() {
   unsigned int x, y;
   unsigned int a, b, c, d;
@@ -135,13 +254,48 @@ void Local_APIC_init() {
   color_printk(GREEN, BLACK, "Set LVT PPR:%#010x\n", x);
 }
 
-/**
- * 初始化 APIC 中断控制器
- */
+void IOAPIC_init() {
+  int i;
+  //	I/O APIC
+  //	I/O APIC	ID
+  *ioapic_map.virtual_index_address = 0x00;
+  io_mfence();
+  *ioapic_map.virtual_data_address = 0x0f000000;
+  io_mfence();
+  color_printk(GREEN, BLACK, "Get IOAPIC ID REG:%#010x,ID:%#010x\n",
+               *ioapic_map.virtual_data_address,
+               *ioapic_map.virtual_data_address >> 24 & 0xf);
+  io_mfence();
+
+  //	I/O APIC	Version
+  *ioapic_map.virtual_index_address = 0x01;
+  io_mfence();
+  color_printk(GREEN, BLACK,
+               "Get IOAPIC Version REG:%#010x,MAX redirection enties:%#08d\n",
+               *ioapic_map.virtual_data_address,
+               ((*ioapic_map.virtual_data_address >> 16) & 0xff) + 1);
+
+  // 写中断定向投递寄存器 RTE，初始化 24 个
+  for (i = 0x10; i < 0x40; i += 2)
+    ioapic_rte_write(i, 0x10020 + ((i - 0x10) >> 1));
+
+  // 打开键盘中断，即 1 号中断
+  ioapic_rte_write(0x12, 0x21);
+  color_printk(GREEN, BLACK,
+               "I/O APIC Redirection Table Entries Set Finished.\n");
+}
+
+/*
+
+*/
+
 void APIC_IOAPIC_init() {
   //	init trap abort fault
   int i;
-  // 初始化中断向量表
+  
+  // 映射间接访问寄存器
+  IOAPIC_pagetable_remap();
+
   for (i = 32; i < 56; i++) {
     set_intr_gate(i, 2, interrupt[i - 32]);
   }
@@ -151,10 +305,45 @@ void APIC_IOAPIC_init() {
   io_out8(0x21, 0xff);
   io_out8(0xa1, 0xff);
 
+  // enable IMCR
+  io_out8(0x22, 0x70);
+  io_out8(0x23, 0x01);
+
   // init local apic
   Local_APIC_init();
 
-  // enable IF eflages
+  // init ioapic
+  IOAPIC_init();
+
+  /**
+   * https://blog.csdn.net/defrag257/article/details/111939545
+   * 芯片组相关的OIC寄存器（较新版本叫IOAC寄存器），实际上是用于BIOS上电初始化的，操作系统不用写这个寄存器！
+   * 没有标准化、每个芯片组都不一样的寄存器，一般不是为操作系统编程而设计的，而是为BIOS上电初始化、厂商驱动程序而设计的。
+   * 此外IMCR寄存器可选存在于早期基于MP的系统中，对于现代的基于ACPI的系统，不存在IMCR寄存器，但强行写这个寄存器也没事。
+   * 操作系统只需要屏蔽8259A（使用8259A的IMR，或屏蔽LINT0和RTE0）、初始化I/O APIC的ID寄存器和24个RTE寄存器即可。
+   */
+  // get RCBA address
+  //  io_out32(0xcf8,0x8000f8f0);
+  //  x = io_in32(0xcfc);
+  //  color_printk(RED,BLACK,"Get RCBA Address:%#010x\n",x);
+  //  x = x & 0xffffc000;
+  //  color_printk(RED,BLACK,"Get RCBA Address:%#010x\n",x);
+
+  // //get OIC address
+  // if(x > 0xfec00000 && x < 0xfee00000)
+  // {
+  // 	p = (unsigned int *)Phy_To_Virt(x + 0x31feUL);
+  // }
+
+  // //enable IOAPIC
+  // x = (*p & 0xffffff00) | 0x100;
+  // io_mfence();
+  // *p = x;
+  // io_mfence();
+
+  memset(interrupt_desc, 0, sizeof(irq_desc_T) * NR_IRQS);
+
+  // open IF eflages
   sti();
 }
 
@@ -164,5 +353,23 @@ void APIC_IOAPIC_init() {
  * @param regs 中断发生时栈顶指针，可访问到所有保存的现场寄存器
  * @param nr 中断向量号
  */
-void do_IRQ(struct pt_regs *regs, unsigned long nr) // regs:rsp,nr
-{}
+void do_IRQ(struct pt_regs *regs, unsigned long nr) {
+  unsigned char x;
+  irq_desc_T *irq = &interrupt_desc[nr - 32];
+
+  x = io_in8(0x60);
+  color_printk(BLUE, WHITE, "(IRQ:%#04x)\tkey code:%#04x\n", nr, x);
+
+  // 调用实际的中断处理函数
+  if (irq->handler != NULL)
+    irq->handler(nr, irq->parameter, regs);
+  // 调用中断应答函数
+  if (irq->controller != NULL && irq->controller->ack != NULL)
+    irq->controller->ack(nr);
+
+  __asm__ __volatile__("movq	$0x00,	%%rdx	\n\t"
+                       "movq	$0x00,	%%rax	\n\t"
+                       "movq 	$0x80b,	%%rcx	\n\t"
+                       "wrmsr	\n\t" ::
+                           : "memory");
+}

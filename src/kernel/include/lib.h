@@ -5,6 +5,8 @@
 
 // 开中断
 #define sti() __asm__ __volatile__("sti	\n\t" ::: "memory")
+// 读写屏障
+#define io_mfence() 	__asm__ __volatile__ ("mfence	\n\t":::"memory")
 
 /**
  * @brief 计算字符串长度
