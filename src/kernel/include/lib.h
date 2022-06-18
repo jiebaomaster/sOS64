@@ -5,10 +5,12 @@
 
 // 开中断
 #define sti() __asm__ __volatile__("sti	\n\t" ::: "memory")
-
-#define nop() 		__asm__ __volatile__ ("nop	\n\t")
+// 空操作
+#define nop() __asm__ __volatile__("nop	\n\t")
+// 停机指令
+#define hlt() __asm__ __volatile__("hlt	\n\t")
 // 读写屏障
-#define io_mfence() 	__asm__ __volatile__ ("mfence	\n\t":::"memory")
+#define io_mfence() __asm__ __volatile__("mfence	\n\t" ::: "memory")
 
 /**
  * @brief 计算字符串长度

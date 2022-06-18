@@ -321,10 +321,13 @@ void init_memory() {
               memory_management_struct.zones_struct->page_using_count,
               memory_management_struct.zones_struct->page_free_count);
 
-  // 清除一致性页表映射，即页表中头几个物理地址 = 虚拟地址的页表项
-  // 低端地址后面会映射给用户空间，内存初始化完毕后也不需要再保留一致性页表映射了
-  for(i = 0; i < 10; i++) 
-    *(Phy_To_Virt(Global_CR3) + i)= 0UL;
+  /**
+   * 清除一致性页表映射，即页表中头几个物理地址 = 虚拟地址的页表项
+   * 低端地址后面会映射给用户空间，内存初始化完毕后也不需要再保留一致性页表映射了
+   * AP 的启动在 mm init 之后，仍然需要一致性映射
+   */
+  // for(i = 0; i < 10; i++) 
+  //   *(Phy_To_Virt(Global_CR3) + i)= 0UL;
   // 刷新tlb，使页表项修改生效
   flush_tlb();
 }

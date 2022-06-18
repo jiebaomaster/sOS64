@@ -1,3 +1,8 @@
+# 引导方式 BIOS/UEFI
+BOOTLOADER := UEFI
+# 启动平台 VM/PC
+PLATFORM := PC
+# 支持的中断控制器 APIC/8259
 PIC := APIC
 C_SOURCES_ORIGIN = $(shell find . -name "*.c")
 PIC_SOURCES = $(shell find "./device/pic" -name "*.c")
@@ -9,12 +14,10 @@ C_OBJECTS = $(patsubst %.c, %.o, $(C_SOURCES))
 S_SOURCES = $(shell find . -name "*.S")
 S_OBJECTS = $(patsubst %.S, %.o, $(S_SOURCES))
 
-BOOTLOADER := UEFI
-
 ROOT_INCLUDE_PATH =  $(shell pwd)/include
 
 CC = gcc
-C_FLAGS = -mcmodel=large -fno-builtin -fno-stack-protector -m64 -c -I $(ROOT_INCLUDE_PATH) -D$(PIC) -D$(BOOTLOADER)
+C_FLAGS = -mcmodel=large -fno-builtin -fno-stack-protector -m64 -c -I $(ROOT_INCLUDE_PATH) -D$(PIC) -D$(BOOTLOADER) -D$(PLATFORM)
 ASM = as
 ASM_FLAGS = --64
 LD_FLAGS = -b elf64-x86-64 -z muldefs -T Kernel.lds
@@ -32,7 +35,7 @@ system: $(C_OBJECTS) $(S_OBJECTS) $(TARGET_PIC_OBJECTS)
 
 .S.o:
 	@echo 编译汇编文件 $< ...
-	$(CC) -I $(ROOT_INCLUDE_PATH) -E $< > $(patsubst %.S, %.s, $<)
+	$(CC) -I $(ROOT_INCLUDE_PATH) -E $< > $(patsubst %.S, %.s, $<) -D$(BOOTLOADER) -D$(PLATFORM)
 	$(ASM) $(ASM_FLAGS) -o $@ $(patsubst %.S, %.s, $<)
 
 .PHONY:clean

@@ -167,6 +167,19 @@ void Local_APIC_init() {
   if (x & 0xc00)
     color_printk(WHITE, BLACK, "xAPIC & x2APIC enabled\n");
 
+#if VM
+  // enable SVR[8]
+  __asm__ __volatile__("movq 	$0x80f,	%%rcx	\n\t"
+                       "rdmsr	\n\t"
+                       "bts	$8,	%%rax	\n\t"
+                      //  "bts	$12,%%rax\n\t"
+                       "wrmsr	\n\t"
+                       "movq 	$0x80f,	%%rcx	\n\t"
+                       "rdmsr	\n\t"
+                       : "=a"(x), "=d"(y)
+                       :
+                       : "memory");
+#else 
   // enable SVR[8]
   __asm__ __volatile__("movq 	$0x80f,	%%rcx	\n\t"
                        "rdmsr	\n\t"
@@ -178,6 +191,7 @@ void Local_APIC_init() {
                        : "=a"(x), "=d"(y)
                        :
                        : "memory");
+#endif
 
   color_printk(WHITE, BLACK, "eax:%#010x,edx:%#010x\t", x, y);
 
@@ -214,6 +228,26 @@ void Local_APIC_init() {
   else if (((x & 0xff) >= 0x10) && ((x & 0xff) <= 0x15))
     color_printk(WHITE, BLACK, "Integrated APIC\n");
 
+#if VM
+  // mask all LVT
+  __asm__ __volatile__(//"movq 	$0x82f,	%%rcx	\n\t" // CMCI
+                       //"wrmsr	\n\t"
+                       "movq 	$0x832,	%%rcx	\n\t" // Timer
+                       "wrmsr	\n\t"
+                       "movq 	$0x833,	%%rcx	\n\t" // Thermal Monitor
+                       "wrmsr	\n\t"
+                       "movq 	$0x834,	%%rcx	\n\t" // Performance Counter
+                       "wrmsr	\n\t"
+                       "movq 	$0x835,	%%rcx	\n\t" // LINT0
+                       "wrmsr	\n\t"
+                       "movq 	$0x836,	%%rcx	\n\t" // LINT1
+                       "wrmsr	\n\t"
+                       "movq 	$0x837,	%%rcx	\n\t" // Error
+                       "wrmsr	\n\t"
+                       :
+                       : "a"(0x10000), "d"(0x00)
+                       : "memory");
+#else
   // mask all LVT
   __asm__ __volatile__("movq 	$0x82f,	%%rcx	\n\t" // CMCI
                        "wrmsr	\n\t"
@@ -232,6 +266,7 @@ void Local_APIC_init() {
                        :
                        : "a"(0x10000), "d"(0x00)
                        : "memory");
+#endif
 
   color_printk(GREEN, BLACK, "Mask ALL LVT\n");
 

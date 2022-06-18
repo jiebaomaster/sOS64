@@ -4,6 +4,7 @@
 
 .globl  _start
 
+#if UEFI
 _start:
   mov   %ss,    %ax
   mov   %ax,    %ds
@@ -30,6 +31,34 @@ _start:
   mov   %ax,    %ss
   
   movq  _stack_start(%rip),  %rsp
+
+#else 
+_start:
+	mov	$0x10,	%ax
+	mov	%ax,	%ds
+	mov	%ax,	%es
+	mov	%ax,	%fs
+	mov	%ax,	%ss
+	mov	$0x7E00,	%esp
+
+//=======	load GDTR
+
+	lgdt	GDT_POINTER(%rip)
+
+//=======	load	IDTR
+
+	lidt	IDT_POINTER(%rip)
+
+	mov	$0x10,	%ax
+	mov	%ax,	%ds
+	mov	%ax,	%es
+	mov	%ax,	%fs
+	mov	%ax,	%gs
+	mov	%ax,	%ss
+
+	movq	$0x7E00,	%rsp
+
+#endif
   
 //====== load cr3 设置页表
 
@@ -52,6 +81,11 @@ entry64:
   movq  %rax,    %gs
   movq  %rax,    %ss
   movq  _stack_start(%rip),  %rsp
+  
+  movq  $0x1b,   %rcx // 根据 IA32_APIC_BASE.BSP[8] 判断是否是 AP
+  rdmsr
+  bt    $8,      %rax
+  jnc   start_smp // 是 AP，走 AP 启动路线
 
 setup_IDT: // 初始化 IDT，全部指向一个临时的处理函数 ignore_int
   leaq  ignore_int(%rip), %rdx // 接下去的多行代码初始化了一个指向 ignore_int 的中断描述符
@@ -104,6 +138,17 @@ setup_TSS64: // 初始化 TSS，发生特权级的切换时，需要从 TSS 内�
 
 go_to_kernel:
   .quad Start_Kernel
+
+
+// AP 的处理路径，只需加载操作系统的各类描述符表，不应该重复执行各模块的初始化
+start_smp:
+  movq  go_to_smp_kernel(%rip), %rax
+  pushq $0x08
+  pushq %rax
+  lretq   // 调用 Start_SMP 函数  
+
+go_to_smp_kernel:
+  .quad Start_SMP
 
 //====== ignore_int
 
@@ -228,14 +273,14 @@ __PDE:
 
 // 映射图像帧缓存，后 8 个页表项将物理地址前 0xf1000000 开始的 16MB 映射到线性地址 0x3000000 和 0xffff800003000000
 // UEFI 中不需要手动映射了
-	; .quad	0xf1000083		/* 线性地址 0x3000000 */
-	; .quad	0xf1200083
-	; .quad	0xf1400083
-	; .quad	0xf1600083
-	; .quad	0xf1800083
-	; .quad	0xf1a00083
-	; .quad	0xf1c00083
-	; .quad	0xf1e00083
+	.quad	0xe0000083		/* 线性地址 0x3000000 */
+	.quad	0xe0200083
+	.quad	0xe0400083
+	.quad	0xe0600083
+	.quad	0xe0800083
+	.quad	0xe0a00083
+	.quad	0xe0c00083
+	.quad	0xe0e00083
 	.fill	488,8,0
 
 //====== GDT_TABLE

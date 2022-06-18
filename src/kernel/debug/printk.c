@@ -12,8 +12,13 @@ static char buf[4096] = {0}; // 存储格式化后字符串的缓冲区
 // 全局定义一个保存屏幕信息的变量
 // 这个结构体必须初始化，不然会引导失败！
 struct position Pos = {
+#if VM
+    .XResolution = 1440,
+    .YResolution = 900,
+#else 
     .XResolution = 1280,
     .YResolution = 1024,
+#endif
 
     .XPosition = 0,
     .YPosition = 0,
@@ -32,7 +37,13 @@ struct position Pos = {
 #if UEFI
 #define FrameBufferBase (boot_para_info->Graphics_Info.FrameBufferBase)
 #else
+
+#if VM
+#define FrameBufferBase (0xe0000000)
+#else 
 #define FrameBufferBase (0xA3000000)
+#endif
+
 #endif
 
 /**

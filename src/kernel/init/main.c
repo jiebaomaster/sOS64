@@ -5,6 +5,7 @@
 #include "trap.h"
 #include "task.h"
 #include "cpu.h"
+#include "SMP.h"
 
 #if APIC
 #include "APIC.h"
@@ -46,8 +47,8 @@ void init_Pos() {
 }
 #else
 void init_Pos() {
-  Pos.XResolution = 1024;
-  Pos.YResolution = 768;
+  Pos.XResolution = 1440;
+  Pos.YResolution = 900;
 
   Pos.XPosition = 0;
   Pos.YPosition = 0;
@@ -101,17 +102,25 @@ void Start_Kernel(void) {
 
   color_printk(RED, BLACK, "interrupt init \n");
   #if APIC
-  APIC_IOAPIC_init();
+  Local_APIC_init();
   #else
   init_8259A();
   #endif
 
-  color_printk(RED, BLACK, "keyboard init \n");
-  keyboard_init();
+  // color_printk(RED, BLACK, "keyboard init \n");
+  // keyboard_init();
 
   // color_printk(RED, BLACK, "task_init \n");
   // task_init();
 
+  SMP_init();
+
+  color_printk(RED,BLACK,"ICR init \n");	
+
+	wrmsr(0x830, 0xc4500); // INIT IPI
+  wrmsr(0x830, 0xc4620); // Start-up IPI
+  wrmsr(0x830, 0xc4620); // Start-up IPI
+
   while (1)
-    analysis_keycode();
+    ;
 }

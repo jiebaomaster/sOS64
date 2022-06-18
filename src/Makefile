@@ -17,7 +17,7 @@ clean: $(patsubst %, _dir2_%,$(SUBDIRS))
 $(patsubst %, _dir2_%, $(SUBDIRS)) :
 	$(MAKE) -C $(patsubst _dir2_%, %, $@) clean
 
-.PHONY:update_image
+.PHONY:bios
 bios:
 	sudo dd if=./bootloader/vm/boot.bin of=$(BOOTIMG) bs=512 count=1 conv=notrunc
 	sudo mount -o loop -t vfat $(BOOTIMG) /mnt
@@ -28,9 +28,9 @@ bios:
 
 .PHONY:load
 load:
-	sudo dd if=./bootloader/pc/boot.bin of=$(DEVICE) bs=512 count=1 conv=notrunc
+	sudo dd if=./bootloader/vm/boot.bin of=$(DEVICE) bs=512 count=1 conv=notrunc
 	sudo mount -o loop -t vfat $(DEVICE) /mnt
-	sudo cp -f ./bootloader/pc/loader.bin /mnt
+	sudo cp -f ./bootloader/vm/loader.bin /mnt
 	sudo cp -f ./kernel/kernel.bin /mnt
 	sync
 	sudo umount /mnt
