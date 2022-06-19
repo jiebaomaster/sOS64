@@ -241,7 +241,7 @@ void __switch_to(struct task_struct *prev, struct task_struct *next) {
   // 更新当前 CPU 的内核栈基地址
   init_tss[0].rsp0 = next->thread->rsp0;
 
-  set_tss64(init_tss[0].rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
+  set_tss64((unsigned int*)(&init_tss[0]), init_tss[0].rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
             init_tss[0].ist1, init_tss[0].ist2, init_tss[0].ist3,
             init_tss[0].ist4, init_tss[0].ist5, init_tss[0].ist6,
             init_tss[0].ist7);
@@ -280,7 +280,7 @@ void task_init() {
 	// P180 sysenter 进入内核层载入的 EIP
   wrmsr(0x176, (unsigned long)system_call);
 
-  set_tss64(init_thread.rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
+  set_tss64((unsigned int*)(&init_tss[0]), init_thread.rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
             init_tss[0].ist1, init_tss[0].ist2, init_tss[0].ist3,
             init_tss[0].ist4, init_tss[0].ist5, init_tss[0].ist6,
             init_tss[0].ist7);

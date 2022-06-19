@@ -71,10 +71,10 @@ void Start_Kernel(void) {
   // 初始化屏幕信息
   void init_Pos();
 
-  // 初始化 tss
+  // 为 BSP 加载 tss
   load_TR(10);
-  // tss 中所有的栈指针都指向 0xffff800000007c00
-  set_tss64(0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,
+  // 设置 BSP 的 TSS
+  set_tss64(TSS64_TABLE, _stack_start, _stack_start, _stack_start,
             0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,
             0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,
             0xffff800000007c00);
@@ -115,11 +115,37 @@ void Start_Kernel(void) {
 
   SMP_init();
 
-  color_printk(RED,BLACK,"ICR init \n");	
+	struct INT_CMD_REG icr_entry;
+  // 准备 INIT IPI
+  icr_entry.vector = 0x00;
+	icr_entry.deliver_mode =  APIC_ICR_IOAPIC_INIT;
+	icr_entry.dest_mode = ICR_IOAPIC_DELV_PHYSICAL;
+	icr_entry.deliver_status = APIC_ICR_IOAPIC_Idle;
+	icr_entry.res_1 = 0;
+	icr_entry.level = ICR_LEVEL_DE_ASSERT;
+	icr_entry.trigger = APIC_ICR_IOAPIC_Edge;
+	icr_entry.res_2 = 0;
+	icr_entry.dest_shorthand = ICR_ALL_EXCLUDE_Self;
+	icr_entry.res_3 = 0;
+	icr_entry.destination.x2apic_destination = 0x00;
 
-	wrmsr(0x830, 0xc4500); // INIT IPI
-  wrmsr(0x830, 0xc4620); // Start-up IPI
-  wrmsr(0x830, 0xc4620); // Start-up IPI
+	wrmsr(0x830, *(unsigned long*)&icr_entry); // INIT IPI
+  
+  // 每个 AP 需要有独立的栈和 TSS 才能独立处理任务
+  // 为 AP 的 init 进程申请栈的内存空间，用 _stack_start 在 head.S 中给 AP 传递栈顶地址
+  // BSP 和 AP 在 head.S 中都用 _stack_start 设置栈
+  _stack_start = (unsigned long)kmalloc(STACK_SIZE, 0) + STACK_SIZE;
+  // 为 AP 的 tss 申请内存空间
+  unsigned int* tss = (unsigned int*)kmalloc(128, 0);
+  set_tss_descriptor(12, tss);
+  set_tss64(tss, _stack_start, _stack_start, _stack_start, _stack_start, _stack_start, _stack_start,_stack_start,_stack_start,_stack_start,_stack_start);
+  
+  // 准备 Start-up IPI
+  icr_entry.vector = 0x20;
+  icr_entry.deliver_mode = ICR_Start_up;
+
+  wrmsr(0x830, *(unsigned long*)&icr_entry); // Start-up IPI
+  wrmsr(0x830, *(unsigned long*)&icr_entry); // Start-up IPI
 
   while (1)
     ;

@@ -80,6 +80,7 @@ entry64:
   movq  %rax,    %es
   movq  %rax,    %gs
   movq  %rax,    %ss
+  // _stack_start 在 BSP 启动后更新为属于 AP 的独立栈地址
   movq  _stack_start(%rip),  %rsp
   
   movq  $0x1b,   %rcx // 根据 IA32_APIC_BASE.BSP[8] 判断是否是 AP
@@ -299,7 +300,7 @@ GDT_TABLE:
   .quad   0x0000f20000000000    /*6	USER	  Data	64-bit	Segment	30*/
   .quad   0x00cf9a000000ffff    /*7	KERNEL	Code	32-bit	Segment	38*/
   .quad   0x00cf92000000ffff    /*8	KERNEL	Data	32-bit	Segment	40*/
-  .fill   10,8,0                /*10-11 TSS (jmp one segment <9>) in long-mode 128bit 50*/
+  .fill   100,8,0               /*10-11 TSS (jmp one segment <9>) in long-mode 128bit 50*/
 GDT_END:
 
 GDT_POINTER:

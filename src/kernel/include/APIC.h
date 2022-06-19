@@ -102,10 +102,10 @@
 
 */
 
-/*
-        LVT
-*/
-
+/**
+ * LVT（Local Vector Table，本地中断向量表） 
+ * Local APIC 中配置中断源产生的中断请求
+ */
 struct APIC_LVT {
   unsigned int vector : 8, // 0~7	ALL
       deliver_mode : 3,    // 8~10	      CMCI LINT0 LINT1 PerformCounter
@@ -120,10 +120,10 @@ struct APIC_LVT {
       res_2 : 13;          // 19~31
 } __attribute__((packed)); // disable align in struct
 
-/*
-        ICR
-*/
-
+/**
+ * ICR（Interrupt Command Register，中断命令寄存器）
+ * 控制 IPI 消息发送
+ */
 struct INT_CMD_REG {
   unsigned int vector : 8, // 0~7
       deliver_mode : 3,    // 8~10

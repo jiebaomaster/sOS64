@@ -122,6 +122,7 @@ struct thread_struct init_thread;
   .priority = 0 \
 }
 
+// BSP 的栈空间
 union task_union init_task_union __attribute((__section__(".data.init_task"))) = {
   INIT_TASK(init_task_union.stack)
 };

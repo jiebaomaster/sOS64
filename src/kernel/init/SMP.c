@@ -2,6 +2,7 @@
 #include "cpu.h"
 #include "lib.h"
 #include "printk.h"
+#include "gate.h"
 
 /**
  * 多核处理器的初始化
@@ -24,8 +25,7 @@ void SMP_init() {
          "processor:%#010x\n",
          c & 0xff, d);
 
-  printk_info("SMP copy byte:%#010x\n",
-              _APU_boot_end - _APU_boot_start);
+  printk_info("SMP copy byte:%#010x\n", _APU_boot_end - _APU_boot_start);
   // 将 APU Boot 代码拷贝到物理地址 0x20000 处
   memcpy(_APU_boot_start, 0xffff800000020000, _APU_boot_end - _APU_boot_start);
 }
@@ -35,7 +35,6 @@ void SMP_init() {
  */
 void Start_SMP(void) {
   // TODO 可以跳转到这里但是不能执行 color_printk
-  hlt();
   unsigned int x, y;
 
   color_printk(RED, YELLOW, "APU starting......\n");
@@ -82,7 +81,9 @@ void Start_SMP(void) {
                        : "memory");
 
   color_printk(RED, YELLOW, "x2APIC ID:%#010x\n", x);
-
-
+  // 加载属于 AP 的 TSS
+  load_TR(12);
+  x = 1/0;
+  
   hlt();
 }
