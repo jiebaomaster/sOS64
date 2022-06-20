@@ -1,7 +1,7 @@
 # 引导方式 BIOS/UEFI
-BOOTLOADER := BIOS
+BOOTLOADER := UEFI
 # 启动平台 VM/PC
-PLATFORM := VM
+PLATFORM := PC
 # 支持的中断控制器 APIC/8259
 PIC := APIC
 C_SOURCES_ORIGIN = $(shell find . -name "*.c")

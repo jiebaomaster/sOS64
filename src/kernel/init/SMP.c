@@ -3,6 +3,7 @@
 #include "lib.h"
 #include "printk.h"
 #include "gate.h"
+#include "interrupt.h"
 
 extern int global_i;
 
@@ -30,8 +31,13 @@ void SMP_init() {
   printk_info("SMP copy byte:%#010x\n", _APU_boot_end - _APU_boot_start);
   // 将 APU Boot 代码拷贝到物理地址 0x20000 处
   memcpy(_APU_boot_start, (unsigned char *)0xffff800000020000, _APU_boot_end - _APU_boot_start);
-
   spin_init(&SMP_lock);
+
+  // 初始化 IPI 中断向量表
+  for (i = 200; i < 210; i++) {
+    set_intr_gate(i, 2, SMP_interrupt[i - 200]);
+  }
+  memset(SMP_IPI_desc, 0, sizeof(irq_desc_T) * 10);
 }
 
 /**
@@ -90,5 +96,9 @@ void Start_SMP(void) {
   
   // AP 启动完毕后释放信号量，使得 BSP 启动下一个 AP
   spin_unlock(&SMP_lock);
-  hlt();
+  
+  sti();
+
+  while(1)
+    hlt();
 }

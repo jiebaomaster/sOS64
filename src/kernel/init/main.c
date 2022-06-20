@@ -168,6 +168,14 @@ void Start_Kernel(void) {
     wrmsr(0x830, *(unsigned long *)&icr_entry); // Start-up IPI
   }
 
+  // 向 cpu1 发送 IPI 
+  icr_entry.vector = 0xc8;
+  icr_entry.destination.x2apic_destination = 1;
+  icr_entry.deliver_mode = APIC_ICR_IOAPIC_Fixed;
+  wrmsr(0x830, *(unsigned long *)&icr_entry);
+  icr_entry.vector = 0xc9;
+  wrmsr(0x830, *(unsigned long *)&icr_entry);
+
   while (1)
-    ;
+    hlt();
 }

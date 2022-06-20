@@ -51,6 +51,14 @@ void IOAPIC_edge_ack(unsigned long irq) {
                            : "memory");
 }
 
+void Local_APIC_edge_level_ack(unsigned long irq) {
+  __asm__ __volatile__("movq	$0x00,	%%rdx	\n\t"
+                       "movq	$0x00,	%%rax	\n\t"
+                       "movq 	$0x80b,	%%rcx	\n\t"
+                       "wrmsr	\n\t" ::
+                           : "memory");
+}
+
 unsigned long ioapic_rte_read(unsigned char index) {
   unsigned long ret;
 
@@ -328,7 +336,7 @@ void APIC_IOAPIC_init() {
   
   // 映射间接访问寄存器
   IOAPIC_pagetable_remap();
-
+  // 初始化中断向量表
   for (i = 32; i < 56; i++) {
     set_intr_gate(i, 2, interrupt[i - 32]);
   }
@@ -381,18 +389,31 @@ void APIC_IOAPIC_init() {
 }
 
 /**
- * @brief 统一的中断处理函数，所有的中断都先跳转到这里，再根据中断向量号分发给各自的真实处理函数
+ * @brief 统一的中断处理函数，所有的中断都先跳转到这里，再根据中断向量号分发给各自的真实处理函数。
+ * 以 0x80 为界，以下为外部中断 IOAPIC，以上为内部中断 Local APIC（包括 IPI)
  *
  * @param regs 中断发生时栈顶指针，可访问到所有保存的现场寄存器
  * @param nr 中断向量号
  */
 void do_IRQ(struct pt_regs *regs, unsigned long nr) {
-  irq_desc_T *irq = &interrupt_desc[nr - 32];
+  switch (nr & 0x80) {
+  case 0x00: {
+    irq_desc_T *irq = &interrupt_desc[nr - 32];
 
-  // 调用实际的中断处理函数
-  if (irq->handler != NULL)
-    irq->handler(nr, irq->parameter, regs);
-  // 调用中断应答函数
-  if (irq->controller != NULL && irq->controller->ack != NULL)
-    irq->controller->ack(nr);
+    // 调用实际的中断处理函数
+    if (irq->handler != NULL)
+      irq->handler(nr, irq->parameter, regs);
+    // 调用中断应答函数
+    if (irq->controller != NULL && irq->controller->ack != NULL)
+      irq->controller->ack(nr);
+  } break;
+
+  case 0x80:
+    printk_info("SMP IPI :%d\n", nr);
+    Local_APIC_edge_level_ack(nr);
+    break;
+  default:
+    printk_error("do_IRQ receive:%d\n", nr);
+    break;
+  }
 }

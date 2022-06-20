@@ -31,6 +31,13 @@ typedef struct { // 处理中断所需信息
 // 全局外部中断描述表
 // 只有 24 项，所以用中断向量号索引时要减去 32
 irq_desc_T interrupt_desc[NR_IRQS] = {0};
+// 全局 IPI（Inter-Processor Interrupt）中断描述表，多核间通信
+irq_desc_T SMP_IPI_desc[10] = {0};
+
+// 外部中断处理函数指针数组
+extern void (*interrupt[24])(void);
+// IPI 中断处理函数指针数组
+extern void (*SMP_interrupt[10])(void);
 
 /**
  * @brief 在 interrupt_desc 中注册中断处理函数
@@ -50,8 +57,12 @@ int register_irq(unsigned long irq, void *arg,
  */
 int unregister_irq(unsigned long irq);
 
-void (*interrupt[24])(void);
-
+/**
+ * @brief 统一的中断处理函数，所有的中断都先跳转到这里，再根据中断向量号分发给各自的真实处理函数
+ *
+ * @param regs 中断发生时栈顶指针，可访问到所有保存的现场寄存器
+ * @param nr 中断向量号
+ */
 void do_IRQ(struct pt_regs *regs, unsigned long nr);
 
 #endif
