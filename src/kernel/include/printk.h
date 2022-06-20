@@ -2,6 +2,7 @@
 #define __PRINTK_H__
 
 #include "font.h"
+#include "spinlock.h"
 #include <stdarg.h>
 
 #define ZEROPAD 1  /* pad with zero 0扩展 */
@@ -41,6 +42,8 @@ struct position { // 屏幕信息
 
   unsigned int *FB_addr;   // 帧缓存区起始地址，FB = Frame Buffer
   unsigned long FB_length; // 帧缓存区容量，单位 byte
+
+  spinlock_T printk_lock; // 打印操作锁
 };
 
 extern struct position Pos;

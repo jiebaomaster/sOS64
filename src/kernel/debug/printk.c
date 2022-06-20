@@ -28,6 +28,8 @@ struct position Pos = {
 
     .FB_addr = (int *)0xffff800003000000,
     .FB_length = 0x300000,
+    
+    .printk_lock.lock = 1
 };
 
 /**
@@ -414,6 +416,9 @@ int color_printk(unsigned int FRcolor, unsigned int BKcolor, const char *fmt,
   int count = 0;
   int tabSpace = 0; // 当前光标距离下一个制表位需要填充的空格数量
   va_list args;
+
+  spin_lock(&Pos.printk_lock);
+
   va_start(args, fmt);
 
   // 1. 先处理源字符串中的 "%"
@@ -475,5 +480,8 @@ int color_printk(unsigned int FRcolor, unsigned int BKcolor, const char *fmt,
       Pos.YPosition = 0;
     }
   }
+  
+  spin_unlock(&Pos.printk_lock);
+
   return i;
 }

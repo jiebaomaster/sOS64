@@ -6,6 +6,7 @@
 #include "task.h"
 #include "cpu.h"
 #include "SMP.h"
+#include "spinlock.h"
 
 #if APIC
 #include "APIC.h"
@@ -44,6 +45,8 @@ void init_Pos() {
 
   Pos.FB_addr = (int *)0xffff800003000000;
   Pos.FB_length = boot_para_info->Graphics_Info.FrameBufferSize;
+
+  spin_init(&Pos.printk_lock);
 }
 #else
 void init_Pos() {
@@ -59,8 +62,15 @@ void init_Pos() {
   Pos.FB_addr = (int *)0xffff800003000000;
   Pos.FB_length =
       (Pos.XResolution * Pos.YResolution * 4 + PAGE_4K_SIZE - 1) & PAGE_4K_MASK;
+  
+  spin_init(&Pos.printk_lock);
 }
 #endif
+
+// 多核共享数据，表示目标处理器的 Local APIC ID 值和 TSS 描述符的索引值
+int global_i = 0;
+
+extern spinlock_T SMP_lock;
 
 void Start_Kernel(void) {
   int i;
@@ -130,22 +140,33 @@ void Start_Kernel(void) {
 	icr_entry.destination.x2apic_destination = 0x00;
 
 	wrmsr(0x830, *(unsigned long*)&icr_entry); // INIT IPI
-  
-  // 每个 AP 需要有独立的栈和 TSS 才能独立处理任务
-  // 为 AP 的 init 进程申请栈的内存空间，用 _stack_start 在 head.S 中给 AP 传递栈顶地址
-  // BSP 和 AP 在 head.S 中都用 _stack_start 设置栈
-  _stack_start = (unsigned long)kmalloc(STACK_SIZE, 0) + STACK_SIZE;
-  // 为 AP 的 tss 申请内存空间
-  unsigned int* tss = (unsigned int*)kmalloc(128, 0);
-  set_tss_descriptor(12, tss);
-  set_tss64(tss, _stack_start, _stack_start, _stack_start, _stack_start, _stack_start, _stack_start,_stack_start,_stack_start,_stack_start,_stack_start);
-  
-  // 准备 Start-up IPI
-  icr_entry.vector = 0x20;
-  icr_entry.deliver_mode = ICR_Start_up;
+  /**
+   * 每个 AP 需要有独立的栈和 TSS 才能独立处理任务
+   * 这里把 SMP_lock 当作资源量为 1 的信号量使用，同步 BSP 和 AP
+   * BSP 依次服务每个 AP，AP 启动完毕后释放信号量，BSP 才能为下一个 AP 服务
+   */ 
+  for(global_i = 1; global_i < 4; global_i++) {
+    spin_lock(&SMP_lock);
+    
+    // 为 AP 的 init 进程申请栈的内存空间，用 _stack_start 在 head.S 中给 AP
+    // 传递栈顶地址 BSP 和 AP 在 head.S 中都用 _stack_start 设置栈
+    _stack_start = (unsigned long)kmalloc(STACK_SIZE, 0) + STACK_SIZE;
+    // 为 AP 的 tss 申请内存空间
+    unsigned int *tss = (unsigned int *)kmalloc(128, 0);
+    set_tss_descriptor(10 + global_i * 2, tss);
+    set_tss64(tss, _stack_start, _stack_start, _stack_start, _stack_start,
+              _stack_start, _stack_start, _stack_start, _stack_start,
+              _stack_start, _stack_start);
 
-  wrmsr(0x830, *(unsigned long*)&icr_entry); // Start-up IPI
-  wrmsr(0x830, *(unsigned long*)&icr_entry); // Start-up IPI
+    // 准备 Start-up IPI
+    icr_entry.vector = 0x20;
+    icr_entry.deliver_mode = ICR_Start_up;
+    icr_entry.dest_shorthand = ICR_No_Shorthand;
+    icr_entry.destination.x2apic_destination = global_i; // 目标核心
+
+    wrmsr(0x830, *(unsigned long *)&icr_entry); // Start-up IPI
+    wrmsr(0x830, *(unsigned long *)&icr_entry); // Start-up IPI
+  }
 
   while (1)
     ;

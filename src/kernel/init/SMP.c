@@ -4,6 +4,8 @@
 #include "printk.h"
 #include "gate.h"
 
+extern int global_i;
+
 /**
  * 多核处理器的初始化
  */
@@ -27,7 +29,9 @@ void SMP_init() {
 
   printk_info("SMP copy byte:%#010x\n", _APU_boot_end - _APU_boot_start);
   // 将 APU Boot 代码拷贝到物理地址 0x20000 处
-  memcpy(_APU_boot_start, 0xffff800000020000, _APU_boot_end - _APU_boot_start);
+  memcpy(_APU_boot_start, (unsigned char *)0xffff800000020000, _APU_boot_end - _APU_boot_start);
+
+  spin_init(&SMP_lock);
 }
 
 /**
@@ -82,8 +86,9 @@ void Start_SMP(void) {
 
   color_printk(RED, YELLOW, "x2APIC ID:%#010x\n", x);
   // 加载属于 AP 的 TSS
-  load_TR(12);
-  x = 1/0;
+  load_TR(10 + (global_i - 1) * 2);
   
+  // AP 启动完毕后释放信号量，使得 BSP 启动下一个 AP
+  spin_unlock(&SMP_lock);
   hlt();
 }
