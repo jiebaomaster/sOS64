@@ -7,6 +7,7 @@
 #include "cpu.h"
 #include "SMP.h"
 #include "spinlock.h"
+#include "HPET.h"
 
 #if APIC
 #include "APIC.h"
@@ -112,17 +113,21 @@ void Start_Kernel(void) {
 
   color_printk(RED, BLACK, "interrupt init \n");
   #if APIC
-  Local_APIC_init();
+    APIC_IOAPIC_init();
   #else
   init_8259A();
   #endif
 
-  // color_printk(RED, BLACK, "keyboard init \n");
-  // keyboard_init();
+  color_printk(RED, BLACK,"Timer & Clock init \n");	
+  HPET_init();
+
+  color_printk(RED, BLACK, "keyboard init \n");
+  keyboard_init();
 
   // color_printk(RED, BLACK, "task_init \n");
   // task_init();
 
+  color_printk(RED,BLACK,"ICR init \n");
   SMP_init();
 
 	struct INT_CMD_REG icr_entry;

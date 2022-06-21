@@ -5,6 +5,8 @@
 
 // 开中断
 #define sti() __asm__ __volatile__("sti	\n\t" ::: "memory")
+// 关中断
+#define cli() __asm__ __volatile__("cli	\n\t" ::: "memory")
 // 空操作
 #define nop() __asm__ __volatile__("nop	\n\t")
 // 停机指令

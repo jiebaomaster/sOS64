@@ -129,6 +129,11 @@ void (*SMP_interrupt[10])(void) = {
  * @brief 在 interrupt_desc 中注册中断处理函数
  * 
  * @param irq 中断向量号
+ * @param arg 安装中断的参数，可以是 struct IO_APIC_RET_entry
+ * @param handler 中断处理函数
+ * @param parameter 中断处理函数的参数
+ * @param controller 中断控制接口函数
+ * @param irq_name 中断名称
  */
 int register_irq(unsigned long irq, void *arg,
                  void (*handler)(unsigned long nr, unsigned long parameter,

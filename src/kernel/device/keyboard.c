@@ -9,6 +9,7 @@ static struct keyboard_inputbuffer *p_kb = NULL;
 // 记录是否按下 shift ctrl alt
 static int shift_l, shift_r, ctrl_l, ctrl_r, alt_l, alt_r;
 
+// 键盘的中断处理函数
 void keyboard_handler(unsigned long nr, unsigned long parameter,
                       struct pt_regs *regs) {
   // 读取键盘扫描码
@@ -166,7 +167,9 @@ hw_int_controller keyboard_int_controller = {.enable = IOAPIC_enable,
                                              .install = IOAPIC_install,
                                              .uninstall = IOAPIC_uninstall,
                                              .ack = IOAPIC_edge_ack};
-
+/**
+ * 初始化键盘驱动程序
+ */
 void keyboard_init() {
   struct IO_APIC_RET_entry entry;
   unsigned long i, j;
