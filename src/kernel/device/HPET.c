@@ -4,6 +4,8 @@
 #include "printk.h"
 #include "time.h"
 #include "mm.h"
+#include "timer.h"
+#include "softirq.h"
 
 hw_int_controller HPET_int_controller = {.enable = IOAPIC_enable,
                                          .disable = IOAPIC_disable,
@@ -11,9 +13,12 @@ hw_int_controller HPET_int_controller = {.enable = IOAPIC_enable,
                                          .uninstall = IOAPIC_uninstall,
                                          .ack = IOAPIC_edge_ack};
 
+// 时钟中断，上半部
 void HPET_handler(unsigned long nr, unsigned long parameter,
                   struct pt_regs *regs) {
-  printk_info("(HPET)");
+  jiffies++;
+  // 标记需要处理时钟软中断
+  set_softirq_status(TIMER_SIRQ);
 }
 
 /**

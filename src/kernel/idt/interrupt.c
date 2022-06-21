@@ -36,6 +36,7 @@
 #define IRQ_NAME(nr) IRQ_NAME2(IRQ##nr)
 
 // 定义一个中断处理函数，函数原型为 void IRQ##nr##_interrupt(void)
+// 保存现场 =》统一处理 do_IRQ =》中断返回 ret_from_intr
 #define Build_IRQ(nr)                                                          \
   void IRQ_NAME(nr);                                                           \
   __asm__( SYMBOL_NAME_STR(IRQ)#nr"_interrupt: \n\t"                          \

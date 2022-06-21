@@ -55,13 +55,20 @@ RESTORE_ALL:  // 恢复栈中保存的执行现场
 
 ret_from_exception:   // 异常返回
 ENTRY(ret_from_intr)
+  movq  $-1, %rcx
+  testq softirq_status(%rip), %rcx // 按位与
+  jnz   softirq_handler // softirq_status 非 0，即有软中断待处理
   jmp RESTORE_ALL     // TODO 当前异常返回时只恢复现场，后期可以加上进程调度、进程信号处理等工作
+
+softirq_handler:
+  callq do_softirq
+  jmp RESTORE_ALL
 
 
 // 借助 sysenter 指令执行系统调用，sysenter 指令执行之后会跳转到内核层的该处执行，
 // 用户空间 => 内核空间 P180
 ENTRY(system_call)
-  sti         // 执行 sysenter 指令会关中断，这里手动开中断
+  sti         // 执行 sysenter 指令会关中断，这里手动开中断
   subq  $0x38, %rsp
   cld
               // 保存应用程序的执行现场

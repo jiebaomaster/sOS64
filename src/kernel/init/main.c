@@ -8,6 +8,8 @@
 #include "SMP.h"
 #include "spinlock.h"
 #include "HPET.h"
+#include "timer.h"
+#include "softirq.h"
 
 #if APIC
 #include "APIC.h"
@@ -118,7 +120,11 @@ void Start_Kernel(void) {
   init_8259A();
   #endif
 
-  color_printk(RED, BLACK,"Timer & Clock init \n");	
+  color_printk(RED, BLACK, "Soft IRQ init \n");
+  softirq_init();
+
+  color_printk(RED, BLACK, "Timer & Clock init \n");	
+  timer_init();
   HPET_init();
 
   color_printk(RED, BLACK, "keyboard init \n");
@@ -127,7 +133,7 @@ void Start_Kernel(void) {
   // color_printk(RED, BLACK, "task_init \n");
   // task_init();
 
-  color_printk(RED,BLACK,"ICR init \n");
+  color_printk(RED, BLACK, "ICR init \n");
   SMP_init();
 
 	struct INT_CMD_REG icr_entry;

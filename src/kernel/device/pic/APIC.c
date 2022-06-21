@@ -338,7 +338,7 @@ void APIC_IOAPIC_init() {
   IOAPIC_pagetable_remap();
   // 初始化中断向量表
   for (i = 32; i < 56; i++) {
-    set_intr_gate(i, 2, interrupt[i - 32]);
+    set_intr_gate(i, 0, interrupt[i - 32]);
   }
 
   // mask 8259A
