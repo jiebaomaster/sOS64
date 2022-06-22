@@ -6,6 +6,7 @@
 #include "mm.h"
 #include "timer.h"
 #include "softirq.h"
+#include "scheduler.h"
 
 hw_int_controller HPET_int_controller = {.enable = IOAPIC_enable,
                                          .disable = IOAPIC_disable,
@@ -19,8 +20,11 @@ void HPET_handler(unsigned long nr, unsigned long parameter,
   jiffies++;
   
   // 如果存在到期的定时器，标记需要处理定时器软中断
-  if(container_of(list_next(&timerList.list), struct timer, list)->expire_jiffies <= jiffies)
+  if (container_of(list_next(&timerList.list), struct timer, list)
+          ->expire_jiffies <= jiffies)
     set_softirq_status(TIMER_SIRQ);
+
+  update_cur_runtime();
 }
 
 /**

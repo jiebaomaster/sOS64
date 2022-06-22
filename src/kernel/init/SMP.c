@@ -4,6 +4,7 @@
 #include "printk.h"
 #include "gate.h"
 #include "interrupt.h"
+#include "task.h"
 
 extern int global_i;
 
@@ -44,7 +45,6 @@ void SMP_init() {
  * APU 的启动路径，只需加载操作系统的各类描述符表，不应该重复执行各模块的初始化
  */
 void Start_SMP(void) {
-  // TODO 可以跳转到这里但是不能执行 color_printk
   unsigned int x, y;
 
   color_printk(RED, YELLOW, "APU starting......\n");
@@ -91,6 +91,10 @@ void Start_SMP(void) {
                        : "memory");
 
   color_printk(RED, YELLOW, "x2APIC ID:%#010x\n", x);
+
+  // 清空 AP 的 PCB
+  memset(current, 0, sizeof(struct task_struct));
+
   // 加载属于 AP 的 TSS
   load_TR(10 + (global_i - 1) * 2);
   

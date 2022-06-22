@@ -14,6 +14,11 @@
 #define USER_CS (0x28)
 #define USER_DS (0x30)
 
+/* do_fork 参数 clone_flags */
+#define CLONE_FS (1 << 0) // 拷贝
+#define CLONE_FILES (1 << 1) // 拷贝打开的文件
+#define CLONE_SIGNAL (1 << 2) // 拷贝信号
+
 // 内核线程栈的大小 32KB
 #define STACK_SIZE 32768
 
@@ -59,8 +64,8 @@ struct thread_struct {
 
 /* task_struct.state */
 #define TASK_RUNNING (1 << 0) // 运行态
-#define TASK_INTERRUPTIBLE (1 << 1) // 可中断
-#define TASK_UNINTERRUPTIBLE (1 << 2) // 不可中断
+#define TASK_INTERRUPTIBLE (1 << 1) // 阻塞，可中断
+#define TASK_UNINTERRUPTIBLE (1 << 2) // 阻塞，不可中断
 #define TASK_ZOMBLE (1 << 3) // 僵尸进程
 #define TASK_STOPPED (1 << 4) // 停止
 
@@ -69,12 +74,16 @@ struct thread_struct {
 
 // 进程控制块，记录和收集程序运行时的资源消耗信息，并维护程序运行的现场环境
 struct task_struct {
-  struct List list;    // 链接所有task_struct结构体的链表节点
   volatile long state; // 进程状态：运行态、停止态、可中断态等
   unsigned long flags; // 进程标志：进程、线程、内核线程
+  long signal; // 进程持有的信号
+  
+  /* 上面三个成员的位置固定，见 entry.S */
 
   struct mm_struct *mm;         // 进程的页表和各程序段信息
   struct thread_struct *thread; // 进程切换时保留的状态信息
+
+  struct List list;    // 链接所有task_struct结构体的链表节点
 
   unsigned long
       addr_limit; // 进程地址空间范围
@@ -82,11 +91,16 @@ struct task_struct {
                   // 0xffff,8000,0000,0000 - 0xffff,ffff,ffff,ffff 内核层
 
   long pid;      // 进程号
-  long counter;  // 进程剩余时间片
-  long signal;   // 进程持有的信号
   long priority; // 进程优先级
+
+  long vruntime; // 进程的虚拟运行时间
 };
 
+/* task_struct->flags */
+// 内核线程
+#define PF_KTHREAD (1UL << 0)
+// 需要调度
+#define NEED_SCHEDULE (1UL << 1)
 
 /**
  * 进程内核态栈和进程 task_struct 的联合体
@@ -113,13 +127,13 @@ struct thread_struct init_thread;
 { \
   .state = TASK_INTERRUPTIBLE, \
   .flags = PF_KTHREAD, \
+  .signal = 0, \
   .mm = &init_mm, \
   .thread = &init_thread, \
   .addr_limit = 0xffff800000000000, \
   .pid = 0, \
-  .counter = 1, \
-  .signal = 0, \
-  .priority = 0 \
+  .priority = 2, \
+  .vruntime = 0 \
 }
 
 // BSP 的栈空间
@@ -212,10 +226,11 @@ static inline struct task_struct * get_current() {
                          "pushq %%rax \n\t"                                    \
                          "movq %%rsp, %0 \n\t" /* 保存prev的栈指针 */            \
                          "movq %2, %%rsp \n\t" /* 切换到next的栈*/               \
-                         "leaq 1f(%%rip), %%rax \n\t"                          \
-                         "pushq %3 \n\t" /* 保存 next 的入口地址，jmp 返回时进入 */ \
+                         "leaq 1f(%%rip), %%rax \n\t" /* 保存 prev 继续执行的地址*/\
+                         "movq	%%rax,	%1	\n\t" /* prev->thread->rip = &1 */ \
+                         "pushq %3 \n\t" /* 压入 next 的入口地址，jmp 返回时进入 */ \
                          "jmp __switch_to \n\t"                                \
-                         "1: \n\t"                                             \
+                         "1: \n\t" /* prev继续执行的地址，下次调度到prev从这里开始执行 */\
                          "popq %%rax \n\t"                                     \
                          "popq %%rbp \n\t"                                     \
                          : "=m"(prev->thread->rsp), "=m"(prev->thread->rip)    \

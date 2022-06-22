@@ -180,4 +180,16 @@ static inline void wrmsr(unsigned long address, unsigned long value) {
                        : "memory");
 }
 
+/**
+ * @brief 返回 rflags 寄存器
+ */
+static inline unsigned long get_rflags() {
+  unsigned long tmp = 0;
+  __asm__ __volatile__("pushfq	\n\t"
+                       "movq	(%%rsp), %0	\n\t"
+                       "popfq	\n\t"
+                       : "=r"(tmp)::"memory");
+  return tmp;
+}
+
 #endif

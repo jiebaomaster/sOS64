@@ -29,6 +29,11 @@ RFLAGS  = 0xa8
 OLDRSP  = 0xb0  // 上一个任务的栈顶地址
 OLDSS = 0xb8    // 上一个任务的栈段选择子
 
+// struct task_struct 成员偏移
+TSK_STATE = 0x00
+TSK_FLAGS = 0x08
+TSK_SIGNAL = 0x10
+
 RESTORE_ALL:  // 恢复栈中保存的执行现场
   popq  %r15  // 恢复通用寄存器 r8~r15
   popq  %r14
@@ -53,17 +58,36 @@ RESTORE_ALL:  // 恢复栈中保存的执行现场
                       // 若异常会产生错误代码，则错误代码的压栈是硬件自动的，但是其出栈需要软件手动操作
   iretq               // 中断返回，自动弹出硬件保存的（SS、RSP）、RFLAGS、CS、RIP 寄存器
 
+// 向下对其到 32KB，取栈底地址，即 task_struct
+#define GET_CURRENT(reg) \
+  movq  $-32768, reg;  \
+  andq  %rsp,    reg
+
 ret_from_exception:   // 异常返回
 ENTRY(ret_from_intr)
+  // 软中断
   movq  $-1, %rcx
   testq softirq_status(%rip), %rcx // 按位与
   jnz   softirq_handler // softirq_status 非 0，即有软中断待处理
-  jmp RESTORE_ALL     // TODO 当前异常返回时只恢复现场，后期可以加上进程调度、进程信号处理等工作
+  // 进程调度
+  GET_CURRENT(%rbx)
+  movq  TSK_FLAGS(%rbx),  %rcx // task_struct.
+  testq $2, %rcx
+  jnz   reschedule
+  jmp RESTORE_ALL     // 中断返回时恢复现场
 
 softirq_handler:
   callq do_softirq
-  jmp RESTORE_ALL
+  // 进程调度
+  GET_CURRENT(%rbx)
+  movq  TSK_FLAGS(%rbx),  %rcx
+  testq $2, %rcx
+  jnz   reschedule
+  jmp RESTORE_ALL     // 中断返回时恢复现场
 
+reschedule:
+  callq schedule
+  jmp RESTORE_ALL
 
 // 借助 sysenter 指令执行系统调用，sysenter 指令执行之后会跳转到内核层的该处执行，
 // 用户空间 => 内核空间 P180

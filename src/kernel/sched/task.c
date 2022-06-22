@@ -1,4 +1,7 @@
 #include "task.h"
+#include "scheduler.h"
+#include "gate.h"
+#include "mm.h"
 
 /**
  * @brief 一段应用程序，模拟 1 号进程的应用程序部分
@@ -8,7 +11,7 @@ void user_level_func() {
   long ret = 0;
   char string[] = "hello world!\n";
 
-  printk("user_level_func task is running\n");
+  // printk("user_level_func task is running\n");
 
   __asm__ __volatile__ (
       "leaq sysexit_return_address(%%rip), %%rdx \n\t" // rdx=rip
@@ -16,10 +19,10 @@ void user_level_func() {
       "sysenter \n\t"           // 执行系统调用
       "sysexit_return_address:  \n\t"
       : "=a"(ret) // ret=rax
-      : "0"(1),"D"(string)   // rax=1，调用 15 号系统调用；rdi=string，用寄存器传递字符串地址给系统调用
+      : "0"(1),"D"(string)   // rax=1，调用 1 号系统调用；rdi=string，用寄存器传递字符串地址给系统调用
       : "memory");
 
-  printk("user_level_func task called sysenter, ret:%ld\n", ret);
+  // printk("user_level_func task called sysenter, ret:%ld\n", ret);
 
   while (1)
     ;
@@ -39,6 +42,35 @@ unsigned long do_execve(struct pt_regs *regs) {
   regs->ds = 0;
   regs->es = 0;
   color_printk(RED, BLACK, "do_execve task is running\n");
+
+  /* 在页表中映射虚拟地址 0x800000 给 init 进程的用户层部分使用 */
+  unsigned long addr = 0x800000;
+  unsigned long *tmp;
+  unsigned long *virtual = NULL;
+  struct Page *p = NULL;
+  Global_CR3 = Get_gdt();
+
+  tmp = Phy_To_Virt((unsigned long *)((unsigned long)Global_CR3 & (~0xfffUL)) +
+                    ((addr >> PAGE_GDT_SHIFT) & 0x1ff));
+
+  virtual = kmalloc(PAGE_4K_SIZE, 0);
+  set_mpl4t(tmp, mk_mpl4t(Virt_To_Phy(virtual), PAGE_USER_GDT));
+
+  tmp = Phy_To_Virt((unsigned long *)(*tmp & (~0xfffUL)) +
+                    ((addr >> PAGE_1G_SHIFT) & 0x1ff));
+  virtual = kmalloc(PAGE_4K_SIZE, 0);
+  set_pdpt(tmp, mk_pdpt(Virt_To_Phy(virtual), PAGE_USER_Dir));
+
+  tmp = Phy_To_Virt((unsigned long *)(*tmp & (~0xfffUL)) +
+                    ((addr >> PAGE_2M_SHIFT) & 0x1ff));
+  p = alloc_pages(ZONE_NORMAL, 1, PG_PTable_Maped);
+  set_pdt(tmp, mk_pdt(p->PHY_address, PAGE_USER_Page));
+
+  flush_tlb();
+
+  if(!(current->flags & PF_KTHREAD))
+    current->addr_limit = 0xffff800000000000;
+
   // 将应用程序拷贝到线性地址处
   memcpy(user_level_func, (void *)0x800000, 1024);
 
@@ -46,7 +78,7 @@ unsigned long do_execve(struct pt_regs *regs) {
 }
 
 /**
- * @brief 1号进程的入口函数
+ * @brief 1号进程的入口函数，跳转到用户空间
  *
  * @param arg
  * @return unsigned long
@@ -60,6 +92,7 @@ unsigned long init(unsigned long arg) {
   current->thread->rsp =
       (unsigned long)current + STACK_SIZE - sizeof(struct pt_regs);
   regs = (struct pt_regs *)current->thread->rsp;
+  current->flags = 0;
 
   // 参考 switch_to，采用 push+jmp 的方法跳转到 ret_system_call 处执行，
   // 在 ret_system_call 中恢复栈中的执行现场，从而进入用户空间
@@ -112,19 +145,20 @@ unsigned long do_fork(struct pt_regs *regs, unsigned long clone_flags,
    * 高地址   -------
    */
 
-  // 初始化新进程的 task_struct
+  /* 初始化新进程的 task_struct */
   tsk = (struct task_struct *)Phy_To_Virt(p->PHY_address);
   printk("struct task_struct address:%#018lx\n", (unsigned long)tsk);
   memset(tsk, 0, sizeof(*tsk));
   *tsk = *current; // 新分配的进程控制块拷贝父进程的控制块信息，空间信息也相同
 
   list_init(&tsk->list);
-  // 将新进程加入全局进程链表
-  list_add_to_before(&init_task_union.task.list, &tsk->list);
+  tsk->priority = 2;
   tsk->pid++;
   tsk->state = TASK_UNINTERRUPTIBLE;
-  // 初始化新进程的 thread_struct
+  /* 初始化新进程的 thread_struct */
+  // 在 task_struct 的后面存放 thread_struct
   thd = (struct thread_struct *)(tsk + 1);
+  memset(thd, 0, sizeof(thd));
   tsk->thread = thd;
   // 拷贝执行现场 regs 到栈中，用于后面从栈中构建进程的执行环境
   memcpy(regs,
@@ -134,6 +168,8 @@ unsigned long do_fork(struct pt_regs *regs, unsigned long clone_flags,
   thd->rsp0 = (unsigned long)tsk + STACK_SIZE;
   thd->rip = regs->rip;
   thd->rsp = (unsigned long)tsk + STACK_SIZE - sizeof(struct pt_regs);
+  thd->fs = KERNEL_DS;
+  thd->gs = KERNEL_DS;
 
   // 若新进程是一个应用层进程，则入口地址改为统一的系统调用返回入口，
   // 因为应用层通过系统调用进入内核层的 do_fork
@@ -141,6 +177,8 @@ unsigned long do_fork(struct pt_regs *regs, unsigned long clone_flags,
     thd->rip = regs->rip = (unsigned long)ret_system_call;
 
   tsk->state = TASK_RUNNING;
+  // 将新进程加入运行队列
+  enqueue_task(tsk);
 
   return 0;
 }
@@ -225,14 +263,14 @@ int kernel_thread(unsigned long (*fn)(unsigned long), unsigned long arg,
   regs.cs = KERNEL_CS;
   regs.ss = KERNEL_DS;
   regs.rflags = (1 << 9);
-  // 内核线程的
+  // 内核线程的统一入口
   regs.rip = (unsigned long)kernel_thread_func;
 
   return do_fork(&regs, flags, 0, 0);
 }
 
 /**
- * @brief 做进程切换前的最后准备
+ * @brief 做进程切换前的最后准备，此时 rsp 已经是 next 的栈了
  * 
  * @param prev 当前进程的控制块
  * @param next 将要执行进程的控制块
@@ -241,7 +279,7 @@ void __switch_to(struct task_struct *prev, struct task_struct *next) {
   // 更新当前 CPU 的内核栈基地址
   init_tss[0].rsp0 = next->thread->rsp0;
 
-  set_tss64((unsigned int*)(&init_tss[0]), init_tss[0].rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
+  set_tss64(TSS64_TABLE, init_tss[0].rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
             init_tss[0].ist1, init_tss[0].ist2, init_tss[0].ist3,
             init_tss[0].ist4, init_tss[0].ist5, init_tss[0].ist6,
             init_tss[0].ist7);
@@ -252,14 +290,17 @@ void __switch_to(struct task_struct *prev, struct task_struct *next) {
   __asm__ __volatile__("movq %0, %%fs \n\t" ::"a"(next->thread->fs));
   __asm__ __volatile__("movq %0, %%gs \n\t" ::"a"(next->thread->gs));
 
-  printk("prev->thread->rsp0:%#018lx\n", prev->thread->rsp0);
-  printk("next->thread->rsp0:%#018lx\n", next->thread->rsp0);
-  printk("next->thread->rip:%#018lx\n", next->thread->rip);
+  // 每个进程都有独立的内核栈，设置 sysenter 使用的内核栈
+  wrmsr(0x175, next->thread->rsp0);
+
+  printk("prev->thread->rsp0:%#018lx\t", prev->thread->rsp0);
+  printk("prev->thread->rsp:%#018lx\n", prev->thread->rsp);
+  printk("next->thread->rsp0:%#018lx\t", next->thread->rsp0);
   printk("next->thread->rsp:%#018lx\n", next->thread->rsp);
 }
 
 void task_init() {
-  struct task_struct *p = NULL;
+  struct task_struct *tsk = NULL;
 
   // 初始化 0 号进程的内存空间结构体
   init_mm.pgd = (pml4t_t *)Global_CR3;
@@ -280,7 +321,7 @@ void task_init() {
 	// P180 sysenter 进入内核层载入的 EIP
   wrmsr(0x176, (unsigned long)system_call);
 
-  set_tss64((unsigned int*)(&init_tss[0]), init_thread.rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
+  set_tss64(TSS64_TABLE, init_thread.rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
             init_tss[0].ist1, init_tss[0].ist2, init_tss[0].ist3,
             init_tss[0].ist4, init_tss[0].ist5, init_tss[0].ist6,
             init_tss[0].ist7);
@@ -289,14 +330,14 @@ void task_init() {
   list_init(&init_task_union.task.list);
 
   // 创建 1 号进程
-  kernel_thread(init, 10, 0);
+  kernel_thread(init, 10, CLONE_FS | CLONE_FILES | CLONE_SIGNAL);
 
-  // 当前进程状态设置为正在执行
+  // 当前进程 idle 状态设置为正在执行
   init_task_union.task.state = TASK_RUNNING;
 
   // 1 号进程为当前 0 号进程的下一个进程
-  p = container_of(list_next(&current->list), struct task_struct, list);
+  tsk = container_of(list_next(&task_scheduler.runqueue.list), struct task_struct, list);
 
   // 切换到 1 号进程
-  switch_to(current, p);
+  switch_to(current, tsk);
 }

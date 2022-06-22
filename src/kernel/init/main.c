@@ -10,6 +10,7 @@
 #include "HPET.h"
 #include "timer.h"
 #include "softirq.h"
+#include "scheduler.h"
 
 #if APIC
 #include "APIC.h"
@@ -86,7 +87,7 @@ void Start_Kernel(void) {
 
   // 为 BSP 加载 tss
   load_TR(10);
-  // 设置 BSP 的 TSS
+  // 设置 BSP 的 TSS，支持中断和进程切换
   set_tss64(TSS64_TABLE, _stack_start, _stack_start, _stack_start,
             0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,
             0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,
@@ -120,18 +121,14 @@ void Start_Kernel(void) {
   init_8259A();
 #endif
 
+  color_printk(RED, BLACK, "schedule init \n");
+  scheduler_init();
+
   color_printk(RED, BLACK, "Soft IRQ init \n");
   softirq_init();
 
-  color_printk(RED, BLACK, "Timer & Clock init \n");	
-  timer_init();
-  HPET_init();
-
   color_printk(RED, BLACK, "keyboard init \n");
   keyboard_init();
-
-  // color_printk(RED, BLACK, "task_init \n");
-  // task_init();
 
   color_printk(RED, BLACK, "ICR init \n");
   SMP_init();
@@ -187,6 +184,13 @@ void Start_Kernel(void) {
   icr_entry.vector = 0xc9;
   wrmsr(0x830, *(unsigned long *)&icr_entry);
 
-  while (1)
-    hlt();
+  color_printk(RED, BLACK, "Timer & Clock init \n");	
+  timer_init();
+  HPET_init();
+
+  color_printk(RED, BLACK, "task_init \n");
+  task_init();
+
+  while (1);
+    // hlt();
 }

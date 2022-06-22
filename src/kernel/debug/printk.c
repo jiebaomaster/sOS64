@@ -417,7 +417,14 @@ int color_printk(unsigned int FRcolor, unsigned int BKcolor, const char *fmt,
   int tabSpace = 0; // 当前光标距离下一个制表位需要填充的空格数量
   va_list args;
 
-  spin_lock(&Pos.printk_lock);
+  /**
+   * 如果在调用 color_printk 时发生中断，则在中断处理时调用 
+   * color_printk 会造成死锁
+   * 判断是否关中断，关中断说明在中断上下文中，此时要避免加锁
+   * FIXME 软中断开中断了，但也在中断上下文中，这里无法判断
+   */
+  if (get_rflags() & 0x200UL)
+    spin_lock(&Pos.printk_lock);
 
   va_start(args, fmt);
 
@@ -474,14 +481,17 @@ int color_printk(unsigned int FRcolor, unsigned int BKcolor, const char *fmt,
       Pos.XPosition = 0;
       Pos.YPosition++;
     }
-    if (Pos.YPosition >= (Pos.YResolution / Pos.YCharSize)) {
+    // FIXME 对于换页的设置得是个固定值
+    // if (Pos.YPosition >= (Pos.YResolution / Pos.YCharSize)) {
+    if (Pos.YPosition >= (50)) {
       // 光标移动到列尾了，直接跳转到第一行，简单覆盖
       // TODO 这边可以优化为屏幕滚动
       Pos.YPosition = 0;
     }
   }
-  
-  spin_unlock(&Pos.printk_lock);
+
+  if (get_rflags() & 0x200UL)
+    spin_unlock(&Pos.printk_lock);
 
   return i;
 }
