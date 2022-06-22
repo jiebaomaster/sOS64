@@ -17,8 +17,10 @@ hw_int_controller HPET_int_controller = {.enable = IOAPIC_enable,
 void HPET_handler(unsigned long nr, unsigned long parameter,
                   struct pt_regs *regs) {
   jiffies++;
-  // 标记需要处理时钟软中断
-  set_softirq_status(TIMER_SIRQ);
+  
+  // 如果存在到期的定时器，标记需要处理定时器软中断
+  if(container_of(list_next(&timerList.list), struct timer, list)->expire_jiffies <= jiffies)
+    set_softirq_status(TIMER_SIRQ);
 }
 
 /**

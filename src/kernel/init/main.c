@@ -114,11 +114,11 @@ void Start_Kernel(void) {
   pagetable_init();
 
   color_printk(RED, BLACK, "interrupt init \n");
-  #if APIC
-    APIC_IOAPIC_init();
-  #else
+#if APIC
+  APIC_IOAPIC_init();
+#else
   init_8259A();
-  #endif
+#endif
 
   color_printk(RED, BLACK, "Soft IRQ init \n");
   softirq_init();
