@@ -2,7 +2,7 @@
 #define __PRINTK_H__
 
 #include "font.h"
-#include "spinlock.h"
+#include "lock/spinlock.h"
 #include <stdarg.h>
 
 #define ZEROPAD 1  /* pad with zero 0扩展 */

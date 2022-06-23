@@ -32,7 +32,8 @@ OLDSS = 0xb8    // 上一个任务的栈段选择子
 // struct task_struct 成员偏移
 TSK_STATE = 0x00
 TSK_FLAGS = 0x08
-TSK_SIGNAL = 0x10
+TSK_PREEMPT = 0x10 
+TSK_SIGNAL = 0x18
 
 RESTORE_ALL:  // 恢复栈中保存的执行现场
   popq  %r15  // 恢复通用寄存器 r8~r15
@@ -59,6 +60,7 @@ RESTORE_ALL:  // 恢复栈中保存的执行现场
   iretq               // 中断返回，自动弹出硬件保存的（SS、RSP）、RFLAGS、CS、RIP 寄存器
 
 // 向下对其到 32KB，取栈底地址，即 task_struct
+// 中断上下文中获取 task_struct，要求进程的中断和内核态使用同一个栈
 #define GET_CURRENT(reg) \
   movq  $-32768, reg;  \
   andq  %rsp,    reg
@@ -67,23 +69,29 @@ ret_from_exception:   // 异常返回
 ENTRY(ret_from_intr)
   // 软中断
   movq  $-1, %rcx
-  testq softirq_status(%rip), %rcx // 按位与
-  jnz   softirq_handler // softirq_status 非 0，即有软中断待处理
+  testq softirq_status(%rip), %rcx  // softirq_status == 0 ?
+  jnz   softirq_handler             // softirq_status 非 0，即有软中断待处理
   // 进程调度
-  GET_CURRENT(%rbx)
-  movq  TSK_FLAGS(%rbx),  %rcx // task_struct.
-  testq $2, %rcx
-  jnz   reschedule
-  jmp RESTORE_ALL     // 中断返回时恢复现场
+  GET_CURRENT(%rbx)             // rbx = &task_struct
+  movq  TSK_PREEMPT(%rbx),  %rcx// rcx = task_struct.preempt_count
+  cmpq  $0, %rcx                // preempt_count == 0 ?
+  jne   RESTORE_ALL             // preempt_count 非 0，即不可调度
+  movq  TSK_FLAGS(%rbx),  %rcx  // rcx = task_struct.flags
+  testq $2, %rcx                // NEED_SCHEDULE == 1 ?
+  jnz   reschedule              // NEED_SCHEDULE 为 1，即需要调度
+  jmp RESTORE_ALL               // 中断返回时恢复现场
 
 softirq_handler:
   callq do_softirq
   // 进程调度
-  GET_CURRENT(%rbx)
-  movq  TSK_FLAGS(%rbx),  %rcx
-  testq $2, %rcx
-  jnz   reschedule
-  jmp RESTORE_ALL     // 中断返回时恢复现场
+  GET_CURRENT(%rbx)             // rbx = &task_struct
+  movq  TSK_PREEMPT(%rbx),  %rcx// rcx = task_struct.preempt_count
+  cmpq  $0, %rcx                // preempt_count == 0 ?
+  jne   RESTORE_ALL             // preempt_count 非 0，即不可调度
+  movq  TSK_FLAGS(%rbx),  %rcx  // rcx = task_struct.flags
+  testq $2, %rcx                // NEED_SCHEDULE == 1 ?
+  jnz   reschedule              // NEED_SCHEDULE 为 1，即需要调度
+  jmp RESTORE_ALL               // 中断返回时恢复现场
 
 reschedule:
   callq schedule

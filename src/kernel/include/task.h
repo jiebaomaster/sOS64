@@ -4,7 +4,6 @@
 #include "list.h"
 #include "mm.h"
 #include "cpu.h"
-#include "gate.h"
 #include "ptrace.h"
 
 /* 各段在 GDT 中的偏移*/
@@ -62,23 +61,33 @@ struct thread_struct {
   unsigned long error_code; // 异常的错误代码
 };
 
-/* task_struct.state */
+/* task_struct->state */
 #define TASK_RUNNING (1 << 0) // 运行态
 #define TASK_INTERRUPTIBLE (1 << 1) // 阻塞，可中断
 #define TASK_UNINTERRUPTIBLE (1 << 2) // 阻塞，不可中断
 #define TASK_ZOMBLE (1 << 3) // 僵尸进程
 #define TASK_STOPPED (1 << 4) // 停止
 
-/* task_struct.flags */
-#define PF_KTHREAD (1 << 0) // 内核线程
+/* task_struct->flags */
+// 内核线程
+#define PF_KTHREAD (1UL << 0)
+// 需要调度
+#define NEED_SCHEDULE (1UL << 1)
 
 // 进程控制块，记录和收集程序运行时的资源消耗信息，并维护程序运行的现场环境
 struct task_struct {
   volatile long state; // 进程状态：运行态、停止态、可中断态等
   unsigned long flags; // 进程标志：进程、线程、内核线程
+  /**
+   * 抢占标志，记录持有自旋锁的数量，持有自旋锁期间不能进行抢占调度
+   * 在中断返回阶段检查 preempt_count 判断是否允许调度，
+   * 这会导致持有自旋锁时，即便是时间片用完也不会调度，但是下一次时钟
+   * 中断到来时，时间片减为负，会再次触发调度
+   */
+  long preempt_count;
   long signal; // 进程持有的信号
   
-  /* 上面三个成员的位置固定，见 entry.S */
+  /* 上面成员的位置固定，见 entry.S */
 
   struct mm_struct *mm;         // 进程的页表和各程序段信息
   struct thread_struct *thread; // 进程切换时保留的状态信息
@@ -96,11 +105,7 @@ struct task_struct {
   long vruntime; // 进程的虚拟运行时间
 };
 
-/* task_struct->flags */
-// 内核线程
-#define PF_KTHREAD (1UL << 0)
-// 需要调度
-#define NEED_SCHEDULE (1UL << 1)
+
 
 /**
  * 进程内核态栈和进程 task_struct 的联合体
@@ -127,6 +132,7 @@ struct thread_struct init_thread;
 { \
   .state = TASK_INTERRUPTIBLE, \
   .flags = PF_KTHREAD, \
+  .preempt_count = 0, \
   .signal = 0, \
   .mm = &init_mm, \
   .thread = &init_thread, \
@@ -249,7 +255,7 @@ typedef unsigned long (*system_call_t)(struct pt_regs *regs);
 
 // 未定义处理程序的系统调用的通用处理，仅输出系统调用号
 unsigned long no_system_call(struct pt_regs * regs) {
-  printk("no_system_call is calling, NR:%#04x\n", regs->rax);
+  // printk("no_system_call is calling, NR:%#04x\n", regs->rax);
   return -1;
 }
 
@@ -260,7 +266,7 @@ unsigned long no_system_call(struct pt_regs * regs) {
  * @return unsigned long 
  */
 unsigned long sys_printf(struct pt_regs * regs) {
-  printk((char *)regs->rdi);
+  // printk((char *)regs->rdi);
   return 1;
 }
 

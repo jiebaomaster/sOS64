@@ -2,7 +2,6 @@
 #define __MM_H__
 
 #include "lib.h"
-#include "printk.h"
 #include "list.h"
 
 #if UEFI

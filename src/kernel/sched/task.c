@@ -2,6 +2,10 @@
 #include "scheduler.h"
 #include "gate.h"
 #include "mm.h"
+#include "printk.h"
+
+
+
 
 /**
  * @brief 一段应用程序，模拟 1 号进程的应用程序部分
@@ -154,6 +158,7 @@ unsigned long do_fork(struct pt_regs *regs, unsigned long clone_flags,
   list_init(&tsk->list);
   tsk->priority = 2;
   tsk->pid++;
+  tsk->preempt_count = 0;
   tsk->state = TASK_UNINTERRUPTIBLE;
   /* 初始化新进程的 thread_struct */
   // 在 task_struct 的后面存放 thread_struct
@@ -334,10 +339,5 @@ void task_init() {
 
   // 当前进程 idle 状态设置为正在执行
   init_task_union.task.state = TASK_RUNNING;
-
-  // 1 号进程为当前 0 号进程的下一个进程
-  tsk = container_of(list_next(&task_scheduler.runqueue.list), struct task_struct, list);
-
-  // 切换到 1 号进程
-  switch_to(current, tsk);
+  init_task_union.task.preempt_count = 0;
 }

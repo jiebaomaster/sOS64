@@ -3,6 +3,7 @@
 #include "interrupt.h"
 #include "lib.h"
 #include "mm.h"
+#include "printk.h"
 
 // 全局键盘输入缓冲区
 static struct keyboard_inputbuffer *p_kb = NULL;

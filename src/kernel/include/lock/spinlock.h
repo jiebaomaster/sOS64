@@ -1,6 +1,8 @@
 #ifndef __SPINLOCK_H__
 #define __SPINLOCK_H__
 
+#include "preempt.h"
+
 // 自旋锁
 typedef struct {
   __volatile__ unsigned long lock; // 1=unlock, 0=lock
@@ -11,6 +13,7 @@ static inline void spin_init(spinlock_T *lock) { lock->lock = 1; }
 
 // 自旋锁上锁
 static inline void spin_lock(spinlock_T *lock) {
+  preempt_disable();
   __asm__ __volatile__("1: \n\t"
                        "lock decq %0 \n\t" // lock 原子减 1
                        "jns 3f \n\t" // lock >= 0 获取锁成功，跳到 3
@@ -32,6 +35,7 @@ static inline void spin_unlock(spinlock_T* lock) {
                        : "=m"(lock->lock)
                        :
                        : "memory");
+  preempt_enable();
 }
 
 #endif

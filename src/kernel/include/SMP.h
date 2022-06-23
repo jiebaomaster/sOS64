@@ -1,6 +1,6 @@
 #ifndef __SMP_H__
 #define __SMP_H__
-#include "spinlock.h"
+#include "lock/spinlock.h"
 
 // APU_boot 代码的起始、终止地址
 extern unsigned char _APU_boot_start[];

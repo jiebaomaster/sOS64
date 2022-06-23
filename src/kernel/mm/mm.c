@@ -1,5 +1,5 @@
 #include "mm.h"
-#include "lib.h"
+#include "printk.h"
 
 struct Global_Memory_Descriptor memory_management_struct = {{0}, 0};
 

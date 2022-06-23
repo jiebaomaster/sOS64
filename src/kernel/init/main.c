@@ -6,7 +6,7 @@
 #include "task.h"
 #include "cpu.h"
 #include "SMP.h"
-#include "spinlock.h"
+#include "lock/spinlock.h"
 #include "HPET.h"
 #include "timer.h"
 #include "softirq.h"
