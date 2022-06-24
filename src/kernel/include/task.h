@@ -89,10 +89,12 @@ struct task_struct {
   
   /* 上面成员的位置固定，见 entry.S */
 
+  long cpu_id; // 进程当前所在处理器的编号
+
   struct mm_struct *mm;         // 进程的页表和各程序段信息
   struct thread_struct *thread; // 进程切换时保留的状态信息
 
-  struct List list;    // 链接所有task_struct结构体的链表节点
+  struct List list;    // 链接于运行队列，等待队列
 
   unsigned long
       addr_limit; // 进程地址空间范围
@@ -134,6 +136,7 @@ struct thread_struct init_thread;
   .flags = PF_KTHREAD, \
   .preempt_count = 0, \
   .signal = 0, \
+  .cpu_id = 0, \
   .mm = &init_mm, \
   .thread = &init_thread, \
   .addr_limit = 0xffff800000000000, \
@@ -143,25 +146,12 @@ struct thread_struct init_thread;
 }
 
 // BSP 的栈空间
-union task_union init_task_union __attribute((__section__(".data.init_task"))) = {
-  INIT_TASK(init_task_union.stack)
-};
+extern union task_union init_task_union;
+// 所有 CPU 的 idle 进程的 PCB，其中 BSP 采用静态创建，AP 的 PCB 在 BSP 中动态创建
+extern struct task_struct *init_task[NR_CPUS];
 
-// 给每个 CPU 都初始化一个起始进程
-struct task_struct *init_task[NR_CPUS] = {&init_task_union.task, 0};
-
-struct mm_struct init_mm = {0};
-struct thread_struct init_thread = {
-  .rsp0 = (unsigned long)(init_task_union.stack +
-                          STACK_SIZE / sizeof(unsigned long)),
-  .rsp = (unsigned long)(init_task_union.stack +
-                         STACK_SIZE / sizeof(unsigned long)),
-  .fs = KERNEL_DS,
-  .gs = KERNEL_DS,
-  .cr2 = 0,
-  .trap_nr = 0,
-  .error_code = 0
-};
+extern struct mm_struct init_mm;
+extern struct thread_struct init_thread;
 
 struct tss_struct {
   unsigned int reserved0;
@@ -199,8 +189,8 @@ struct tss_struct {
   .iomapbaseaddr = 0 \
 }
 
-// 为每一个 CPU 设置一个 tss
-struct tss_struct init_tss[NR_CPUS] = {[0 ... NR_CPUS-1] = INIT_TSS};
+// 为每一个 CPU 设置一个 TSS
+extern struct tss_struct init_tss[NR_CPUS];
 
 /**
  * @brief 由当前的栈顶指针获取当前执行进程的 task_struct
@@ -245,36 +235,25 @@ static inline struct task_struct * get_current() {
                          : "memory");                                          \
   } while(0)
 
-unsigned long do_fork(struct pt_regs * regs, unsigned long clone_flags, unsigned long stack_start, unsigned long stack_size);
+/**
+ * @brief 1号进程的入口函数，跳转到用户空间
+ */
+unsigned long init(unsigned long arg);
+
+unsigned long do_fork(struct pt_regs *regs, unsigned long clone_flags,
+                      unsigned long stack_start, unsigned long stack_size);
+
+/**
+ * @brief BSP 中对 idle 进程的初始化
+ */
 void task_init();
+
 
 #define MAX_SYSTEM_CALL_NR 128 // 最多 128 个系统调用
 
 // 系统调用函数指针类型
 typedef unsigned long (*system_call_t)(struct pt_regs *regs);
 
-// 未定义处理程序的系统调用的通用处理，仅输出系统调用号
-unsigned long no_system_call(struct pt_regs * regs) {
-  // printk("no_system_call is calling, NR:%#04x\n", regs->rax);
-  return -1;
-}
-
-/**
- * @brief 1 号系统调用的处理函数，输出 regs->rdi 指向的字符串
- * 
- * @param regs 
- * @return unsigned long 
- */
-unsigned long sys_printf(struct pt_regs * regs) {
-  // printk((char *)regs->rdi);
-  return 1;
-}
-
-// 全局系统调用函数指针数组，全部初始化成未定义系统调用的处理函数
-system_call_t system_call_table[MAX_SYSTEM_CALL_NR] = {
-  [0] = no_system_call,
-  [1] = sys_printf, // 注册 1 号系统调用的处理函数
-  [2 ... MAX_SYSTEM_CALL_NR - 1] = no_system_call
-};
+extern system_call_t system_call_table[MAX_SYSTEM_CALL_NR];
 
 #endif

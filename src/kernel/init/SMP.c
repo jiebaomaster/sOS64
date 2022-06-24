@@ -34,9 +34,9 @@ void SMP_init() {
   memcpy(_APU_boot_start, (unsigned char *)0xffff800000020000, _APU_boot_end - _APU_boot_start);
   spin_init(&SMP_lock);
 
-  // 初始化 IPI 中断向量表
+  // 初始化 IPI 中断向量表，使用 tss.rsp0
   for (i = 200; i < 210; i++) {
-    set_intr_gate(i, 2, SMP_interrupt[i - 200]);
+    set_intr_gate(i, 0, SMP_interrupt[i - 200]);
   }
   memset(SMP_IPI_desc, 0, sizeof(irq_desc_T) * 10);
 }
@@ -92,16 +92,35 @@ void Start_SMP(void) {
 
   color_printk(RED, YELLOW, "x2APIC ID:%#010x\n", x);
 
-  // 清空 AP 的 PCB
-  memset(current, 0, sizeof(struct task_struct));
+  /* 初始化 AP 的 idle 进程的 PCB */
+  current->state = TASK_RUNNING;
+  current->flags = PF_KTHREAD;
+  current->mm = &init_mm;
+  
+  list_init(&current->list);
+  current->addr_limit = 0xffff800000000000;
+  current->priority = 2;
+  current->vruntime = 0;
+  
+  current->thread = (struct thread_struct*)(current + 1);
+  memset(current->thread, 0, sizeof(struct thread_struct));
+  current->thread->rsp0 = _stack_start;
+  current->thread->rsp = _stack_start;
+  current->thread->fs = KERNEL_DS;
+  current->thread->gs = KERNEL_DS;
+  init_task[SMP_cpu_id()] = current;
 
   // 加载属于 AP 的 TSS
   load_TR(10 + (global_i - 1) * 2);
   
   // AP 启动完毕后释放信号量，使得 BSP 启动下一个 AP
   spin_unlock(&SMP_lock);
-  
+  current->preempt_count = 0;
+
   sti();
+
+  if (SMP_cpu_id() == 3)
+    kernel_thread(init, 10, CLONE_FS | CLONE_FILES | CLONE_SIGNAL);
 
   while(1)
     hlt();

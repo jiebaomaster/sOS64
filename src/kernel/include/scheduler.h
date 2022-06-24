@@ -11,8 +11,8 @@ struct scheduler {
   struct task_struct runqueue; 
 };
 
-// 全局进程调度器
-extern struct scheduler task_scheduler;
+// 全局进程调度器数组，每个 CPU 拥有独立的调度器
+extern struct scheduler task_scheduler[NR_CPUS];
 
 /**
  * @brief 更新时间片和虚拟运行时间

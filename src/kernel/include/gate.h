@@ -18,7 +18,6 @@ struct gate_struct {
 
 extern struct desc_struct GDT_TABLE[]; // head.S 中定义的 gdt 表
 extern struct gate_struct IDT_TABLE[]; // head.S 中定义的 idt 表
-extern unsigned int TSS64_TABLE[26];   // head.S 中定义的 TSS 表
 
 // 初始化 idt 中的各种门
 #define _set_gate(gate_selector_addr, addr, ist, code_addr)                    \

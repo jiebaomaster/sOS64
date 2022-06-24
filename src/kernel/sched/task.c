@@ -3,9 +3,52 @@
 #include "gate.h"
 #include "mm.h"
 #include "printk.h"
+#include "SMP.h"
 
+// 未定义处理程序的系统调用的通用处理，仅输出系统调用号
+unsigned long no_system_call(struct pt_regs * regs) {
+  // printk("no_system_call is calling, NR:%#04x\n", regs->rax);
+  return -1;
+}
 
+/**
+ * @brief 1 号系统调用的处理函数，输出 regs->rdi 指向的字符串
+ */
+unsigned long sys_printf(struct pt_regs * regs) {
+  // printk((char *)regs->rdi);
+  return 1;
+}
 
+// 全局系统调用函数指针数组，全部初始化成未定义系统调用的处理函数
+system_call_t system_call_table[MAX_SYSTEM_CALL_NR] = {
+  [0] = no_system_call,
+  [1] = sys_printf, // 注册 1 号系统调用的处理函数
+  [2 ... MAX_SYSTEM_CALL_NR - 1] = no_system_call
+};
+
+// BSP 的栈空间
+union task_union init_task_union __attribute((__section__(".data.init_task"))) = {
+  INIT_TASK(init_task_union.stack)
+};
+
+struct mm_struct init_mm = {0};
+struct thread_struct init_thread = {
+  .rsp0 = (unsigned long)(init_task_union.stack +
+                          STACK_SIZE / sizeof(unsigned long)),
+  .rsp = (unsigned long)(init_task_union.stack +
+                         STACK_SIZE / sizeof(unsigned long)),
+  .fs = KERNEL_DS,
+  .gs = KERNEL_DS,
+  .cr2 = 0,
+  .trap_nr = 0,
+  .error_code = 0
+};
+
+// 为每一个 CPU 设置一个 TSS
+struct tss_struct init_tss[NR_CPUS] = {[0 ... NR_CPUS-1] = INIT_TSS};
+
+// 所有 CPU 的 idle 进程的 PCB，其中 BSP 采用静态创建，AP 的 PCB 在 BSP 中动态创建
+struct task_struct *init_task[NR_CPUS] = {&init_task_union.task, 0};
 
 /**
  * @brief 一段应用程序，模拟 1 号进程的应用程序部分
@@ -83,9 +126,6 @@ unsigned long do_execve(struct pt_regs *regs) {
 
 /**
  * @brief 1号进程的入口函数，跳转到用户空间
- *
- * @param arg
- * @return unsigned long
  */
 unsigned long init(unsigned long arg) {
   struct pt_regs *regs = NULL;
@@ -159,6 +199,7 @@ unsigned long do_fork(struct pt_regs *regs, unsigned long clone_flags,
   tsk->priority = 2;
   tsk->pid++;
   tsk->preempt_count = 0;
+  tsk->cpu_id = SMP_cpu_id();
   tsk->state = TASK_UNINTERRUPTIBLE;
   /* 初始化新进程的 thread_struct */
   // 在 task_struct 的后面存放 thread_struct
@@ -281,13 +322,10 @@ int kernel_thread(unsigned long (*fn)(unsigned long), unsigned long arg,
  * @param next 将要执行进程的控制块
  */
 void __switch_to(struct task_struct *prev, struct task_struct *next) {
-  // 更新当前 CPU 的内核栈基地址
-  init_tss[0].rsp0 = next->thread->rsp0;
-
-  set_tss64(TSS64_TABLE, init_tss[0].rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
-            init_tss[0].ist1, init_tss[0].ist2, init_tss[0].ist3,
-            init_tss[0].ist4, init_tss[0].ist5, init_tss[0].ist6,
-            init_tss[0].ist7);
+  // 在当前 CPU 的 TSS 中更新内核栈基地址，中断使用
+  init_tss[SMP_cpu_id()].rsp0 = next->thread->rsp0;
+  // 每个进程都有独立的内核栈，设置 sysenter 使用的内核栈，系统调用使用
+  wrmsr(0x175, next->thread->rsp0);
 
   // 保存、设置段选择子
   __asm__ __volatile__("movq %%fs, %0 \n\t" : "=a"(prev->thread->fs));
@@ -295,15 +333,16 @@ void __switch_to(struct task_struct *prev, struct task_struct *next) {
   __asm__ __volatile__("movq %0, %%fs \n\t" ::"a"(next->thread->fs));
   __asm__ __volatile__("movq %0, %%gs \n\t" ::"a"(next->thread->gs));
 
-  // 每个进程都有独立的内核栈，设置 sysenter 使用的内核栈
-  wrmsr(0x175, next->thread->rsp0);
-
   printk("prev->thread->rsp0:%#018lx\t", prev->thread->rsp0);
   printk("prev->thread->rsp:%#018lx\n", prev->thread->rsp);
   printk("next->thread->rsp0:%#018lx\t", next->thread->rsp0);
   printk("next->thread->rsp:%#018lx\n", next->thread->rsp);
+  printk_info("CPUID:%#018lx\n", SMP_cpu_id());
 }
 
+/**
+ * @brief BSP 中对 idle 进程的初始化
+ */
 void task_init() {
   struct task_struct *tsk = NULL;
 
@@ -326,18 +365,12 @@ void task_init() {
 	// P180 sysenter 进入内核层载入的 EIP
   wrmsr(0x176, (unsigned long)system_call);
 
-  set_tss64(TSS64_TABLE, init_thread.rsp0, init_tss[0].rsp1, init_tss[0].rsp2,
-            init_tss[0].ist1, init_tss[0].ist2, init_tss[0].ist3,
-            init_tss[0].ist4, init_tss[0].ist5, init_tss[0].ist6,
-            init_tss[0].ist7);
-
-  init_tss[0].rsp0 = init_thread.rsp0;
   list_init(&init_task_union.task.list);
 
   // 创建 1 号进程
   kernel_thread(init, 10, CLONE_FS | CLONE_FILES | CLONE_SIGNAL);
 
-  // 当前进程 idle 状态设置为正在执行
+  // 当前 idle 进程状态设置为正在执行
   init_task_union.task.state = TASK_RUNNING;
   init_task_union.task.preempt_count = 0;
 }

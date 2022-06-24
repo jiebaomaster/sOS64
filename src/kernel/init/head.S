@@ -109,7 +109,7 @@ rp_sidt:                // repeat set idt
   jne   rp_sidt         // 如果rcx!=0，继续循环，即重复 256 次
 
 setup_TSS64: // 初始化 TSS，发生特权级的切换时，需要从 TSS 内读取栈空间信息
-  leaq  TSS64_TABLE(%rip),  %rdx
+  leaq  init_tss(%rip),  %rdx
   xorq  %rax, %rax
   xorq  %rcx, %rcx
   movq  $0x89,%rax
@@ -318,15 +318,3 @@ IDT_END:
 IDT_POINTER:
 IDT_LIMIT:    .word IDT_END - IDT_TABLE - 1
 IDT_BASE:     .quad IDT_TABLE
-
-//======= TSS64_TABLE
-
-.globl  TSS64_TABLE
-
-TSS64_TABLE: // 64 位模式下每个 TSS 占 104 字节，故该表只含有一个 TSS，详见书本 P232
-  .fill   13,8,0
-TSS64_END:
-
-TSS64_POINTER:
-TSS64_LIMIT:    .word TSS64_END - TSS64_TABLE - 1
-TSS64_BASE:     .quad TSS64_TABLE

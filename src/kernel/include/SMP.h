@@ -18,4 +18,7 @@ void SMP_init();
  */
 void Start_SMP();
 
+// 获取当前进程所在处理器编号
+#define SMP_cpu_id() (current->cpu_id)
+
 #endif

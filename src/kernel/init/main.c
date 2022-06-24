@@ -88,7 +88,7 @@ void Start_Kernel(void) {
   // 为 BSP 加载 tss
   load_TR(10);
   // 设置 BSP 的 TSS，支持中断和进程切换
-  set_tss64(TSS64_TABLE, _stack_start, _stack_start, _stack_start,
+  set_tss64(&init_tss[0], _stack_start, _stack_start, _stack_start,
             0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,
             0xffff800000007c00, 0xffff800000007c00, 0xffff800000007c00,
             0xffff800000007c00);
@@ -106,6 +106,13 @@ void Start_Kernel(void) {
 
   color_printk(RED, BLACK, "slab init \n");
   kmalloc_slab_init();
+
+  // kmalloc 可用之后马上为 BSP 申请中断栈的内存空间
+  unsigned char *int_stack = (unsigned char*)kmalloc(STACK_SIZE, 0) + STACK_SIZE;
+  ((struct task_struct*)(int_stack - STACK_SIZE))->cpu_id = 0;
+
+  set_tss64(&init_tss[0], _stack_start, _stack_start, _stack_start, int_stack,
+            int_stack, int_stack, int_stack, int_stack, int_stack, int_stack);
 
   color_printk(RED, BLACK, "frame buffer init \n");
   frame_buffer_init();
@@ -152,19 +159,26 @@ void Start_Kernel(void) {
    * 每个 AP 需要有独立的栈和 TSS 才能独立处理任务
    * 这里把 SMP_lock 当作资源量为 1 的信号量使用，同步 BSP 和 AP
    * BSP 依次服务每个 AP，AP 启动完毕后释放信号量，BSP 才能为下一个 AP 服务
+   * 
+   * TODO 目前支持了 4 个核心，应该由 APIC 读取到的核心数目决定
    */ 
   for(global_i = 1; global_i < 4; global_i++) {
     spin_lock(&SMP_lock);
     
-    // 为 AP 的 init 进程申请栈的内存空间，用 _stack_start 在 head.S 中给 AP
-    // 传递栈顶地址 BSP 和 AP 在 head.S 中都用 _stack_start 设置栈
+    // 为 AP 的 init 进程申请内核栈的内存空间，用 _stack_start 在 head.S 中
+    // 给 AP 传递栈顶地址。BSP 和 AP 在 head.S 中都用 _stack_start 设置栈
     _stack_start = (unsigned long)kmalloc(STACK_SIZE, 0) + STACK_SIZE;
-    // 为 AP 的 tss 申请内存空间
-    unsigned int *tss = (unsigned int *)kmalloc(128, 0);
-    set_tss_descriptor(10 + global_i * 2, tss);
-    set_tss64(tss, _stack_start, _stack_start, _stack_start, _stack_start,
-              _stack_start, _stack_start, _stack_start, _stack_start,
-              _stack_start, _stack_start);
+    ((struct task_struct *)(_stack_start - STACK_SIZE))->cpu_id = global_i;
+
+    // 为 AP 的中断栈申请内存空间
+    int_stack = (unsigned char*)kmalloc(STACK_SIZE, 0) + STACK_SIZE;
+    ((struct task_struct *)(int_stack - STACK_SIZE))->cpu_id = global_i;
+
+    // 设置 TSS
+    set_tss64(&init_tss[global_i], _stack_start, _stack_start, _stack_start,
+              int_stack, int_stack, int_stack, int_stack, int_stack, int_stack,
+              int_stack);
+    set_tss_descriptor(10 + global_i * 2, &init_tss[global_i]);
 
     // 准备 Start-up IPI
     icr_entry.vector = 0x20;

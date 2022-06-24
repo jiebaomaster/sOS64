@@ -24,7 +24,18 @@ void HPET_handler(unsigned long nr, unsigned long parameter,
           ->expire_jiffies <= jiffies)
     set_softirq_status(TIMER_SIRQ);
 
-  update_cur_runtime();
+  // update_cur_runtime();
+
+  // 发送 IPI 给 cpu3，模拟时钟中断，驱动 cpu3 上的进程调度
+  struct INT_CMD_REG icr_entry;
+  memset(&icr_entry, 0, sizeof(struct INT_CMD_REG));
+  icr_entry.vector = 0xc8;
+  icr_entry.dest_shorthand = ICR_No_Shorthand;
+  icr_entry.trigger = APIC_ICR_IOAPIC_Edge;
+  icr_entry.dest_mode = ICR_IOAPIC_DELV_PHYSICAL;
+  icr_entry.destination.x2apic_destination = 3;
+  icr_entry.deliver_mode = APIC_ICR_IOAPIC_Fixed;
+  wrmsr(0x830, *(unsigned long *)&icr_entry);
 }
 
 /**

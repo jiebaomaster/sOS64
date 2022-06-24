@@ -7,6 +7,8 @@
 #include "mm.h"
 #include "printk.h"
 #include "ptrace.h"
+#include "scheduler.h"
+#include "SMP.h"
 
 void IOAPIC_enable(unsigned long irq) {
   unsigned long value = 0;
@@ -336,7 +338,7 @@ void APIC_IOAPIC_init() {
   
   // 映射间接访问寄存器
   IOAPIC_pagetable_remap();
-  // 初始化中断向量表
+  // 初始化中断向量表，使用 tss.rsp0
   for (i = 32; i < 56; i++) {
     set_intr_gate(i, 0, interrupt[i - 32]);
   }
@@ -411,6 +413,11 @@ void do_IRQ(struct pt_regs *regs, unsigned long nr) {
   case 0x80:
     printk_info("SMP IPI :%d\n", nr);
     Local_APIC_edge_level_ack(nr);
+
+    // BSP 转发时钟中断给 cpu3，驱动进程调度
+    update_cur_runtime();
+    printk_warn("CPU_exec_task_jiffies:%d\n",
+                task_scheduler[SMP_cpu_id()].CPU_exec_task_jiffies);
     break;
   default:
     printk_error("do_IRQ receive:%d\n", nr);
