@@ -86,7 +86,7 @@ Build_IRQ(0xd0)
 Build_IRQ(0xd1)
 
 // 定义中断处理函数指针数组
-void (* interrupt[24])(void) = {
+void (* interrupt[NR_IRQS])(void) = {
   IRQ0x20_interrupt,
   IRQ0x21_interrupt,
   IRQ0x22_interrupt,
@@ -113,7 +113,7 @@ void (* interrupt[24])(void) = {
   IRQ0x37_interrupt,
 };
 
-void (*SMP_interrupt[10])(void) = {
+void (*SMP_interrupt[NR_IPI])(void) = {
   IRQ0xc8_interrupt, 
   IRQ0xc9_interrupt, 
   IRQ0xca_interrupt, 
@@ -172,5 +172,48 @@ int unregister_irq(unsigned long irq) {
   p->irq_name = NULL;
   p->flags = 0;
   
+  return 1;
+}
+
+/**
+ * @brief 在 SMP_IPI_desc 中注册中断处理函数
+ * 
+ * @param irq 中断向量号
+ * @param arg 安装中断的参数，可以是 struct IO_APIC_RET_entry
+ * @param handler 中断处理函数
+ * @param parameter 中断处理函数的参数
+ * @param controller 中断控制接口函数，IPI 不用操作硬件设备，该参数应为 NULL
+ * @param irq_name 中断名称
+ */
+int register_IPI(unsigned long irq, void *arg,
+                 void (*handler)(unsigned long nr, unsigned long parameter,
+                                 struct pt_regs *regs),
+                 unsigned long parameter, hw_int_controller *controller,
+                 char *irq_name) {
+  irq_desc_T *p = &SMP_IPI_desc[irq - 200];
+
+  p->controller = NULL;
+  p->irq_name = irq_name;
+  p->parameter = parameter;
+  p->flags = 0;
+  p->handler = handler;
+
+  return 1;
+}
+
+/**
+ * @brief 在 SMP_IPI_desc 中注销中断处理函数
+ * 
+ * @param irq 中断向量号
+ */
+int unregister_IPI(unsigned long irq) {
+  irq_desc_T *p = &SMP_IPI_desc[irq - 200];
+
+  p->controller = NULL;
+  p->irq_name = NULL;
+  p->parameter = NULL;
+  p->flags = 0;
+  p->handler = NULL;
+
   return 1;
 }

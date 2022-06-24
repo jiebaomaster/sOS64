@@ -28,16 +28,17 @@ typedef struct { // 处理中断所需信息
 
 // 见 APIC.h 外部中断 32~55	I/O APIC，共 24 个
 #define NR_IRQS 24
+#define NR_IPI 10
 // 全局外部中断描述表
 // 只有 24 项，所以用中断向量号索引时要减去 32
 irq_desc_T interrupt_desc[NR_IRQS] = {0};
 // 全局 IPI（Inter-Processor Interrupt）中断描述表，多核间通信
-irq_desc_T SMP_IPI_desc[10] = {0};
+irq_desc_T SMP_IPI_desc[NR_IPI] = {0};
 
 // 外部中断处理函数指针数组
-extern void (*interrupt[24])(void);
+extern void (*interrupt[NR_IRQS])(void);
 // IPI 中断处理函数指针数组
-extern void (*SMP_interrupt[10])(void);
+extern void (*SMP_interrupt[NR_IPI])(void);
 
 /**
  * @brief 在 interrupt_desc 中注册中断处理函数
@@ -64,5 +65,19 @@ int unregister_irq(unsigned long irq);
  * @param nr 中断向量号
  */
 void do_IRQ(struct pt_regs *regs, unsigned long nr);
+
+/**
+ * @brief 在 SMP_IPI_desc 中注册中断处理函数
+ */
+int register_IPI(unsigned long irq, void *arg,
+                 void (*handler)(unsigned long nr, unsigned long parameter,
+                                 struct pt_regs *regs),
+                 unsigned long parameter, hw_int_controller *controller,
+                 char *irq_name);
+
+/**
+ * @brief 在 SMP_IPI_desc 中注销中断处理函数
+ */
+int unregister_IPI(unsigned long irq);
 
 #endif

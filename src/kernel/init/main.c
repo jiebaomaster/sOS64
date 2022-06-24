@@ -74,8 +74,6 @@ void init_Pos() {
 // 多核共享数据，表示目标处理器的 Local APIC ID 值和 TSS 描述符的索引值
 int global_i = 0;
 
-extern spinlock_T SMP_lock;
-
 void Start_Kernel(void) {
   int i;
 

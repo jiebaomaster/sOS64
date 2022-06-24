@@ -5,8 +5,21 @@
 #include "gate.h"
 #include "interrupt.h"
 #include "task.h"
+#include "scheduler.h"
 
 extern int global_i;
+
+// 同步 BSP 和 AP 的启动过程
+// TODO 应该使用信号量而不是锁
+spinlock_T SMP_lock;
+
+/**
+ * @brief IPI200 中断处理 BSP 转发来的时钟中断，进行进程调度
+ */
+void IPI_0x200(unsigned long nr, unsigned long parameter,
+               struct pt_regs *regs) {
+  update_cur_runtime();
+}
 
 /**
  * 多核处理器的初始化
@@ -39,6 +52,8 @@ void SMP_init() {
     set_intr_gate(i, 0, SMP_interrupt[i - 200]);
   }
   memset(SMP_IPI_desc, 0, sizeof(irq_desc_T) * 10);
+  // 注册 IPI200 中断处理 BSP 转发来的时钟中断，进行进程调度
+  register_IPI(200, NULL, &IPI_0x200, NULL, NULL, "IPI 0x200");
 }
 
 /**
@@ -120,7 +135,7 @@ void Start_SMP(void) {
   sti();
 
   if (SMP_cpu_id() == 3)
-    kernel_thread(init, 10, CLONE_FS | CLONE_FILES | CLONE_SIGNAL);
+    task_init();
 
   while(1)
     hlt();

@@ -95,7 +95,7 @@ void schedule() {
   current->flags &= ~NEED_SCHEDULE;
 
   struct task_struct *tsk = pick_next_task();
-  printk_info("#schedule: %d#\n", jiffies);
+  printk_info("#schedule: %d in cpu%d #\n", jiffies, SMP_cpu_id());
 
   if (current->vruntime >= tsk->vruntime) {
     // 找到虚拟运行时间更小的进程，切换

@@ -399,7 +399,7 @@ void APIC_IOAPIC_init() {
  */
 void do_IRQ(struct pt_regs *regs, unsigned long nr) {
   switch (nr & 0x80) {
-  case 0x00: {
+  case 0x00: { // 外部中断
     irq_desc_T *irq = &interrupt_desc[nr - 32];
 
     // 调用实际的中断处理函数
@@ -410,14 +410,14 @@ void do_IRQ(struct pt_regs *regs, unsigned long nr) {
       irq->controller->ack(nr);
   } break;
 
-  case 0x80:
-    printk_info("SMP IPI :%d\n", nr);
+  case 0x80: // 核间中断
+    // printk_info("SMP IPI:%d, CPU:%d\n",nr,SMP_cpu_id());
     Local_APIC_edge_level_ack(nr);
-
-    // BSP 转发时钟中断给 cpu3，驱动进程调度
-    update_cur_runtime();
-    printk_warn("CPU_exec_task_jiffies:%d\n",
-                task_scheduler[SMP_cpu_id()].CPU_exec_task_jiffies);
+    {
+      irq_desc_T *ipi = &SMP_IPI_desc[nr - 200];
+      if (ipi->handler)
+        ipi->handler(nr, ipi->parameter, regs);
+    }
     break;
   default:
     printk_error("do_IRQ receive:%d\n", nr);

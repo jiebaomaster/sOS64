@@ -6,7 +6,7 @@
 extern unsigned char _APU_boot_start[];
 extern unsigned char _APU_boot_end[];
 
-spinlock_T SMP_lock;
+extern spinlock_T SMP_lock;
 
 /**
  * 多核处理器的初始化

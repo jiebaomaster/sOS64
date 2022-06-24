@@ -333,11 +333,10 @@ void __switch_to(struct task_struct *prev, struct task_struct *next) {
   __asm__ __volatile__("movq %0, %%fs \n\t" ::"a"(next->thread->fs));
   __asm__ __volatile__("movq %0, %%gs \n\t" ::"a"(next->thread->gs));
 
-  printk("prev->thread->rsp0:%#018lx\t", prev->thread->rsp0);
-  printk("prev->thread->rsp:%#018lx\n", prev->thread->rsp);
-  printk("next->thread->rsp0:%#018lx\t", next->thread->rsp0);
-  printk("next->thread->rsp:%#018lx\n", next->thread->rsp);
-  printk_info("CPUID:%#018lx\n", SMP_cpu_id());
+  // printk("prev->thread->rsp0:%#018lx\t", prev->thread->rsp0);
+  // printk("prev->thread->rsp:%#018lx\n", prev->thread->rsp);
+  // printk("next->thread->rsp0:%#018lx\t", next->thread->rsp0);
+  // printk("next->thread->rsp:%#018lx\n", next->thread->rsp);
 }
 
 /**
